@@ -15,9 +15,7 @@ def get_stock_data():
     
     try:
         response = requests.get(url)
-        response.raise_for_status()  # HTTP 에러 체크
-        
-        # API 응답 출력하여 구조 확인
+        response.raise_for_status()
         data = response.json()
         print(f"First stock data sample: {data[0] if data else 'No data'}")
         return data
@@ -31,14 +29,14 @@ def update_airtable(stock_data):
         return
     
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    current_time = datetime.now().isoformat()
+    # Airtable 형식에 맞는 날짜 문자열 생성 (YYYY-MM-DD)
+    current_time = datetime.now().strftime("%Y-%m-%d")
     
     for stock in stock_data:
         try:
-            # API 응답에서 필드가 없을 경우 기본값 사용
             record = {
                 '티커': stock.get('symbol', ''),
-                '종목명': stock.get('name', ''),  # companyName 대신 name 사용
+                '종목명': stock.get('name', ''),
                 '현재가': float(stock.get('price', 0)),
                 '등락률': float(stock.get('changesPercentage', 0)),
                 '거래량': int(stock.get('volume', 0)),
