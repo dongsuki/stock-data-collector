@@ -29,4 +29,4 @@ jobs:
         FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python stock_data_collector.py
+      run: python ./collect_stock_data.py
