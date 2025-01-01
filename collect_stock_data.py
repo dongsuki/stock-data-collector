@@ -16,7 +16,11 @@ def get_stock_data():
     try:
         response = requests.get(url)
         response.raise_for_status()  # HTTP 에러 체크
-        return response.json()
+        
+        # API 응답 출력하여 구조 확인
+        data = response.json()
+        print(f"First stock data sample: {data[0] if data else 'No data'}")
+        return data
     except requests.exceptions.RequestException as e:
         print(f"API 요청 중 에러 발생: {str(e)}")
         return None
@@ -31,31 +35,37 @@ def update_airtable(stock_data):
     
     for stock in stock_data:
         try:
+            # API 응답에서 필드가 없을 경우 기본값 사용
             record = {
-                '티커': stock['symbol'],
-                '종목명': stock['companyName'],
-                '현재가': float(stock['price']),
-                '등락률': float(stock['changesPercentage']),
-                '거래량': int(stock['volume']),
+                '티커': stock.get('symbol', ''),
+                '종목명': stock.get('name', ''),  # companyName 대신 name 사용
+                '현재가': float(stock.get('price', 0)),
+                '등락률': float(stock.get('changesPercentage', 0)),
+                '거래량': int(stock.get('volume', 0)),
                 '시가총액': float(stock.get('marketCap', 0)),
                 '거래소 정보': stock.get('exchange', ''),
                 '업데이트 시간': current_time
             }
             
+            # 필수 필드 확인
+            if not record['티커']:
+                print(f"필수 필드 누락: {stock}")
+                continue
+                
             # 기존 레코드 검색
-            existing_records = airtable.search('티커', stock['symbol'])
+            existing_records = airtable.search('티커', record['티커'])
             
             if existing_records:
                 # 기존 레코드 업데이트
                 airtable.update(existing_records[0]['id'], record)
+                print(f"데이터 업데이트 완료: {record['티커']}")
             else:
                 # 새 레코드 생성
                 airtable.insert(record)
+                print(f"새 데이터 추가 완료: {record['티커']}")
                 
-            print(f"데이터 업데이트 완료: {stock['symbol']}")
-            
         except Exception as e:
-            print(f"레코드 처리 중 에러 발생 ({stock['symbol']}): {str(e)}")
+            print(f"레코드 처리 중 에러 발생 ({stock.get('symbol', 'Unknown')}): {str(e)}")
 
 def main():
     print("데이터 수집 시작...")
