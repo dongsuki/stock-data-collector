@@ -126,11 +126,12 @@ def update_airtable(stock_data, category):
 def main():
     print("데이터 수집 시작...")
     
+    # 한 번에 하나의 카테고리만 실행
     categories = [
         "전일대비등락률상위",
-        "거래대금상위",
-        "시가총액상위",
-        "52주신고가"
+        # "거래대금상위",
+        # "시가총액상위",
+        # "52주신고가"
     ]
     
     for category in categories:
