@@ -26,9 +26,7 @@ def get_gainers_data():
 def update_airtable(stock_data, category):
     """Airtable에 데이터 업데이트"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    current_date = {
-        'date': datetime.now().strftime("%Y-%m-%d")
-    }
+    current_date = datetime.now().strftime("%Y-%m-%d")
     
     for stock in stock_data:
         try:
