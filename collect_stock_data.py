@@ -1,5 +1,6 @@
 import requests
-from airtable import Airtable
+from pyairtable import Table
+from datetime import datetime
 import time
 
 POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
@@ -25,41 +26,54 @@ def fetch_all_tickers():
         print(f"데이터 수집 에러: {e}")
         return []
 
-def screen_stocks(stocks, min_price=5, min_volume=1_000_000):
+def screen_stocks(stocks, price=5, volume=1_000_000, change=3):
     """스크리닝 조건에 맞는 주식 필터링"""
     screened_stocks = []
     for stock in stocks:
         day_data = stock.get('day', {})
-        price = float(day_data.get('c', 0))  # 종가
-        volume = int(day_data.get('v', 0))  # 거래량
+        stock_price = float(day_data.get('c', 0))  # 종가
+        stock_volume = int(day_data.get('v', 0))  # 거래량
+        stock_change = stock.get('todaysChangePerc', 0)
         
-        if price >= min_price and volume >= min_volume:
+        if stock_price >= price and stock_volume >= volume and stock_change >= change:
             screened_stocks.append({
                 "ticker": stock['ticker'],
-                "price": price,
-                "volume": volume
+                "price": stock_price,
+                "volume": stock_volume,
+                "change": stock_change,
+                "exchange": stock.get('primaryExchange', ''),
+                "name": stock.get('name', '')
             })
+    # 등락률 기준 내림차순 정렬
+    screened_stocks = sorted(screened_stocks, key=lambda x: x['change'], reverse=True)
     return screened_stocks
 
 def update_airtable(screened_stocks):
     """Airtable에 데이터 업데이트"""
-    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
+    table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, TABLE_NAME)
     
     for stock in screened_stocks:
         try:
             record = {
                 '티커': stock['ticker'],
                 '현재가': stock['price'],
-                '거래량': stock['volume']
+                '거래량': stock['volume'],
+                '등락률': stock['change'],
+                '거래소 정보': stock['exchange'],
+                '종목명': stock['name'],
+                '업데이트 시간': datetime.now().isoformat(),  # ISO 8601 형식으로 변환
+                '분류': "스크리닝"
             }
             
-            existing_records = airtable.search('티커', record['티커'])
+            # 모든 레코드 가져오기
+            records = table.all(view='Grid view')
+            existing_record = next((r for r in records if r['fields'].get('티커') == record['티커']), None)
             
-            if existing_records:
-                airtable.update(existing_records[0]['id'], record)
+            if existing_record:
+                table.update(existing_record['id'], record)
                 print(f"데이터 업데이트 완료: {record['티커']}")
             else:
-                airtable.insert(record)
+                table.create(record)
                 print(f"새 데이터 추가 완료: {record['티커']}")
             
             time.sleep(0.2)  # API 호출 제한 방지
@@ -73,8 +87,8 @@ def main():
     if all_tickers:
         print(f"총 {len(all_tickers)}개의 종목 데이터 가져옴.")
         
-        print("스크리닝 조건: 종가 >= 5달러, 거래량 >= 100만")
-        screened = screen_stocks(all_tickers, min_price=5, min_volume=1_000_000)
+        print("스크리닝 조건: 종가 >= 5달러, 거래량 >= 100만, 등락률 >= 3%")
+        screened = screen_stocks(all_tickers, price=5, volume=1_000_000, change=3)
         
         print(f"조건에 맞는 종목: {len(screened)}개")
         update_airtable(screened)
