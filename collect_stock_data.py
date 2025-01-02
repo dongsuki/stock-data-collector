@@ -1,6 +1,7 @@
+import os
 import requests
-from pyairtable import Table
 from datetime import datetime
+from airtable import Airtable
 import time
 
 POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
@@ -8,92 +9,142 @@ AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3ade
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
-def fetch_all_tickers():
-    """전체 스냅샷 데이터 가져오기"""
+def get_all_stocks():
+    """모든 주식 데이터 가져오기"""
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+    params = {
+        'apiKey': POLYGON_API_KEY,
+        'include_otc': False  # OTC 제외
+    }
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"전체 데이터 샘플:", data['tickers'][0] if data.get('tickers') else 'No data')
+            return data.get('tickers', [])
+        else:
+            print(f"API 요청 실패: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"데이터 수집 중 에러 발생: {str(e)}")
+        return []
+
+def get_stock_details(ticker):
+    """종목 상세정보 조회"""
+    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
     params = {'apiKey': POLYGON_API_KEY}
     
     try:
         response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if data.get("status") == "OK":
-            return data.get("tickers", [])
-        else:
-            print("API 에러:", data.get("message", "알 수 없는 오류"))
-            return []
-    except Exception as e:
-        print(f"데이터 수집 에러: {e}")
-        return []
+        if response.status_code == 200:
+            return response.json().get('results', {})
+        return None
+    except:
+        return None
 
-def screen_stocks(stocks, price=5, volume=1_000_000, change=3):
-    """스크리닝 조건에 맞는 주식 필터링"""
-    screened_stocks = []
-    for stock in stocks:
-        day_data = stock.get('day', {})
-        stock_price = float(day_data.get('c', 0))  # 종가
-        stock_volume = int(day_data.get('v', 0))  # 거래량
-        stock_change = stock.get('todaysChangePerc', 0)
-        
-        if stock_price >= price and stock_volume >= volume and stock_change >= change:
-            screened_stocks.append({
-                "ticker": stock['ticker'],
-                "price": stock_price,
-                "volume": stock_volume,
-                "change": stock_change,
-                "exchange": stock.get('primaryExchange', ''),
-                "name": stock.get('name', '')
-            })
-    # 등락률 기준 내림차순 정렬
-    screened_stocks = sorted(screened_stocks, key=lambda x: x['change'], reverse=True)
-    return screened_stocks
-
-def update_airtable(screened_stocks):
-    """Airtable에 데이터 업데이트"""
-    table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, TABLE_NAME)
+def filter_stocks(stocks):
+    """주식 데이터 필터링"""
+    filtered = []
+    total = len(stocks)
     
-    for stock in screened_stocks:
+    print(f"총 {total}개 종목 필터링 시작...")
+    
+    for i, stock in enumerate(stocks, 1):
+        day_data = stock.get('day', {})
+        price = float(day_data.get('c', 0))  # 종가
+        volume = int(day_data.get('v', 0))  # 거래량
+        change = float(stock.get('todaysChangePerc', 0))  # 등락률
+        
+        if i % 10 == 0:
+            print(f"진행 중... {i}/{total}")
+        
+        # 첫 번째 필터: 기본 조건
+        if price >= 5 and volume >= 1000000 and change >= 3:
+            # 상세 정보 가져오기
+            details = get_stock_details(stock['ticker'])
+            if details:
+                market_cap = float(details.get('market_cap', 0))
+                
+                # 두 번째 필터: 시가총액 1억 달러 이상
+                if market_cap >= 100000000:
+                    stock['name'] = details.get('name', '')
+                    stock['market_cap'] = market_cap
+                    stock['primary_exchange'] = details.get('primary_exchange', '')
+                    filtered.append(stock)
+                    print(f"조건 만족: {stock['ticker']} (시가총액: ${market_cap:,.2f})")
+            time.sleep(0.1)  # API 속도 제한 준수
+    
+    # 등락률 기준 내림차순 정렬
+    return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
+
+def update_airtable(stock_data, category):
+    """Airtable에 데이터 업데이트"""
+    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    
+    for stock in stock_data:
         try:
+            day_data = stock.get('day', {})
+            
             record = {
-                '티커': stock['ticker'],
-                '현재가': stock['price'],
-                '거래량': stock['volume'],
-                '등락률': stock['change'],
-                '거래소 정보': stock['exchange'],
-                '종목명': stock['name'],
-                '업데이트 시간': datetime.now().isoformat(),  # ISO 8601 형식으로 변환
-                '분류': "스크리닝"
+                '티커': stock.get('ticker', ''),
+                '종목명': stock.get('name', ''),
+                '현재가': float(day_data.get('c', 0)),
+                '등락률': float(stock.get('todaysChangePerc', 0)),
+                '거래량': int(day_data.get('v', 0)),
+                '시가총액': float(stock.get('market_cap', 0)),
+                '업데이트 시간': current_date,
+                '분류': category
             }
             
-            # 모든 레코드 가져오기
-            records = table.all(view='Grid view')
-            existing_record = next((r for r in records if r['fields'].get('티커') == record['티커']), None)
+            # 거래소 정보가 있는 경우에만 추가
+            if stock.get('primary_exchange'):
+                record['거래소 정보'] = stock['primary_exchange']
             
-            if existing_record:
-                table.update(existing_record['id'], record)
-                print(f"데이터 업데이트 완료: {record['티커']}")
+            if not record['티커']:
+                print(f"필수 필드 누락: {stock}")
+                continue
+                
+            existing_records = airtable.search('티커', record['티커'])
+            
+            if existing_records:
+                airtable.update(existing_records[0]['id'], record)
+                print(f"데이터 업데이트 완료: {record['티커']} ({category})")
             else:
-                table.create(record)
-                print(f"새 데이터 추가 완료: {record['티커']}")
+                airtable.insert(record)
+                print(f"새 데이터 추가 완료: {record['티커']} ({category})")
             
-            time.sleep(0.2)  # API 호출 제한 방지
+            time.sleep(0.2)
+            
         except Exception as e:
             print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
 
 def main():
-    print("전체 주식 데이터 가져오는 중...")
-    all_tickers = fetch_all_tickers()
+    print("데이터 수집 시작...")
+    print("필터링 조건:")
+    print("- 현재가 >= $5")
+    print("- 거래량 >= 1,000,000주")
+    print("- 등락률 >= 3%")
+    print("- 시가총액 >= $100,000,000")
     
-    if all_tickers:
-        print(f"총 {len(all_tickers)}개의 종목 데이터 가져옴.")
+    # 전체 주식 데이터 가져오기
+    all_stocks = get_all_stocks()
+    if not all_stocks:
+        print("데이터 수집 실패")
+        return
         
-        print("스크리닝 조건: 종가 >= 5달러, 거래량 >= 100만, 등락률 >= 3%")
-        screened = screen_stocks(all_tickers, price=5, volume=1_000_000, change=3)
-        
-        print(f"조건에 맞는 종목: {len(screened)}개")
-        update_airtable(screened)
-    else:
-        print("데이터를 가져오지 못했습니다.")
+    print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
+    
+    # 조건에 맞는 종목 필터링
+    filtered_stocks = filter_stocks(all_stocks)
+    print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
+    
+    # Airtable 업데이트
+    if filtered_stocks:
+        update_airtable(filtered_stocks, "전일대비등락률상위")
+    
+    print("\n모든 데이터 처리 완료!")
 
 if __name__ == "__main__":
     main()
