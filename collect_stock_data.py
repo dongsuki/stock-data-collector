@@ -9,12 +9,21 @@ AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3ade
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
+def convert_exchange_code(mic):
+    """거래소 코드를 읽기 쉬운 형태로 변환"""
+    exchange_map = {
+        'XNAS': 'NASDAQ',
+        'XNYS': 'NYSE',
+        'XASE': 'AMEX'
+    }
+    return exchange_map.get(mic, mic)
+
 def get_all_stocks():
     """모든 주식 데이터 가져오기"""
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
     params = {
         'apiKey': POLYGON_API_KEY,
-        'include_otc': False  # OTC 제외
+        'include_otc': False
     }
     
     try:
@@ -52,30 +61,25 @@ def filter_stocks(stocks):
     
     for i, stock in enumerate(stocks, 1):
         day_data = stock.get('day', {})
-        price = float(day_data.get('c', 0))  # 종가
-        volume = int(day_data.get('v', 0))  # 거래량
-        change = float(stock.get('todaysChangePerc', 0))  # 등락률
+        price = float(day_data.get('c', 0))
+        volume = int(day_data.get('v', 0))
+        change = float(stock.get('todaysChangePerc', 0))
         
         if i % 10 == 0:
             print(f"진행 중... {i}/{total}")
         
-        # 첫 번째 필터: 기본 조건
-        if price >= 5 and volume >= 1000000 and change >= 3:
-            # 상세 정보 가져오기
+        if price >= 5 and volume >= 1000000 and change >= 5:  # 등락률 5% 이상으로 수정
             details = get_stock_details(stock['ticker'])
             if details:
                 market_cap = float(details.get('market_cap', 0))
-                
-                # 두 번째 필터: 시가총액 1억 달러 이상
                 if market_cap >= 100000000:
                     stock['name'] = details.get('name', '')
                     stock['market_cap'] = market_cap
                     stock['primary_exchange'] = details.get('primary_exchange', '')
                     filtered.append(stock)
                     print(f"조건 만족: {stock['ticker']} (시가총액: ${market_cap:,.2f})")
-            time.sleep(0.1)  # API 속도 제한 준수
+            time.sleep(0.1)
     
-    # 등락률 기준 내림차순 정렬
     return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
 
 def update_airtable(stock_data, category):
@@ -98,9 +102,8 @@ def update_airtable(stock_data, category):
                 '분류': category
             }
             
-            # 거래소 정보가 있는 경우에만 추가
             if stock.get('primary_exchange'):
-                record['거래소 정보'] = stock['primary_exchange']
+                record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
             
             if not record['티커']:
                 print(f"필수 필드 누락: {stock}")
@@ -125,10 +128,9 @@ def main():
     print("필터링 조건:")
     print("- 현재가 >= $5")
     print("- 거래량 >= 1,000,000주")
-    print("- 등락률 >= 3%")
+    print("- 등락률 >= 5%")  # 메시지 수정
     print("- 시가총액 >= $100,000,000")
     
-    # 전체 주식 데이터 가져오기
     all_stocks = get_all_stocks()
     if not all_stocks:
         print("데이터 수집 실패")
@@ -136,11 +138,9 @@ def main():
         
     print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
     
-    # 조건에 맞는 종목 필터링
     filtered_stocks = filter_stocks(all_stocks)
     print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
     
-    # Airtable 업데이트
     if filtered_stocks:
         update_airtable(filtered_stocks, "전일대비등락률상위")
     
