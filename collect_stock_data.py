@@ -18,27 +18,6 @@ def convert_exchange_code(mic):
     }
     return exchange_map.get(mic, mic)
 
-def get_all_stocks():
-    """모든 주식 데이터 가져오기"""
-    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
-    params = {
-        'apiKey': POLYGON_API_KEY,
-        'include_otc': False
-    }
-    
-    try:
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            print(f"전체 데이터 샘플:", data['tickers'][0] if data.get('tickers') else 'No data')
-            return data.get('tickers', [])
-        else:
-            print(f"API 요청 실패: {response.status_code}")
-            return []
-    except Exception as e:
-        print(f"데이터 수집 중 에러 발생: {str(e)}")
-        return []
-
 def get_stock_details(ticker):
     """종목 상세정보 조회"""
     url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
@@ -52,35 +31,88 @@ def get_stock_details(ticker):
     except:
         return None
 
-def filter_stocks(stocks):
-    """주식 데이터 필터링"""
-    filtered = []
-    total = len(stocks)
-    
-    print(f"총 {total}개 종목 필터링 시작...")
-    
-    for i, stock in enumerate(stocks, 1):
-        day_data = stock.get('day', {})
-        price = float(day_data.get('c', 0))
-        volume = int(day_data.get('v', 0))
-        change = float(stock.get('todaysChangePerc', 0))
+def get_gainers_data():
+    """전일대비등락률상위 데이터"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers"
+    params = {'apiKey': POLYGON_API_KEY}
+    return fetch_and_filter(url, params, "전일대비등락률상위", 
+                          min_price=5, min_volume=1000000, min_change=5, min_market_cap=100000000)
+
+def get_volume_leaders():
+    """거래대금상위 데이터"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+    params = {
+        'apiKey': POLYGON_API_KEY,
+        'sort': 'volume',
+        'order': 'desc',
+        'limit': 20
+    }
+    return fetch_and_filter(url, params, "거래대금상위", 
+                          min_price=5, min_market_cap=100000000)
+
+def get_market_cap_leaders():
+    """시가총액상위 데이터"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+    params = {
+        'apiKey': POLYGON_API_KEY,
+        'sort': 'market_cap',
+        'order': 'desc',
+        'limit': 20
+    }
+    return fetch_and_filter(url, params, "시가총액상위", 
+                          min_price=5, min_volume=1000000)
+
+def get_52_week_high():
+    """52주 신고가 데이터"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/52-week-high"
+    params = {
+        'apiKey': POLYGON_API_KEY,
+        'limit': 20
+    }
+    return fetch_and_filter(url, params, "52주신고가", 
+                          min_price=5, min_volume=1000000, min_market_cap=100000000)
+
+def fetch_and_filter(url, params, category, min_price=0, min_volume=0, min_change=0, min_market_cap=0):
+    """데이터 가져오기 및 필터링"""
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code != 200:
+            print(f"{category} 데이터 요청 실패: {response.status_code}")
+            return []
+            
+        stocks = response.json().get('tickers', [])
+        print(f"\n{category}: 초기 수집 {len(stocks)}개")
         
-        if i % 10 == 0:
-            print(f"진행 중... {i}/{total}")
-        
-        if price >= 5 and volume >= 1000000 and change >= 5:  # 등락률 5% 이상으로 수정
+        filtered = []
+        for stock in stocks:
+            day_data = stock.get('day', {})
+            price = float(day_data.get('c', 0))
+            volume = int(day_data.get('v', 0))
+            change = float(stock.get('todaysChangePerc', 0))
+            
+            # 기본 조건 체크
+            if price < min_price or volume < min_volume or change < min_change:
+                continue
+                
+            # 상세 정보 가져오기
             details = get_stock_details(stock['ticker'])
             if details:
                 market_cap = float(details.get('market_cap', 0))
-                if market_cap >= 100000000:
+                if market_cap >= min_market_cap:
                     stock['name'] = details.get('name', '')
                     stock['market_cap'] = market_cap
                     stock['primary_exchange'] = details.get('primary_exchange', '')
                     filtered.append(stock)
-                    print(f"조건 만족: {stock['ticker']} (시가총액: ${market_cap:,.2f})")
+                    print(f"추가됨: {stock['ticker']} (${price:.2f}, {volume:,}주)")
+            
             time.sleep(0.1)
-    
-    return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
+        
+        print(f"{category}: 최종 선택 {len(filtered)}개")
+        return filtered
+        
+    except Exception as e:
+        print(f"{category} 데이터 수집 중 에러 발생: {str(e)}")
+        return []
 
 def update_airtable(stock_data, category):
     """Airtable에 데이터 업데이트"""
@@ -106,45 +138,54 @@ def update_airtable(stock_data, category):
                 record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
             
             if not record['티커']:
-                print(f"필수 필드 누락: {stock}")
                 continue
                 
             existing_records = airtable.search('티커', record['티커'])
             
             if existing_records:
                 airtable.update(existing_records[0]['id'], record)
-                print(f"데이터 업데이트 완료: {record['티커']} ({category})")
+                print(f"업데이트: {record['티커']} ({category})")
             else:
                 airtable.insert(record)
-                print(f"새 데이터 추가 완료: {record['티커']} ({category})")
+                print(f"신규추가: {record['티커']} ({category})")
             
             time.sleep(0.2)
             
         except Exception as e:
-            print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
+            print(f"에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
 
 def main():
-    print("데이터 수집 시작...")
-    print("필터링 조건:")
-    print("- 현재가 >= $5")
-    print("- 거래량 >= 1,000,000주")
-    print("- 등락률 >= 5%")  # 메시지 수정
-    print("- 시가총액 >= $100,000,000")
+    print("\n=== 미국 주식 데이터 수집 시작 ===")
     
-    all_stocks = get_all_stocks()
-    if not all_stocks:
-        print("데이터 수집 실패")
-        return
+    # 1. 전일대비등락률상위
+    print("\n[전일대비등락률상위]")
+    print("기준: 현재가 $5↑, 거래량 100만주↑, 등락률 5%↑, 시가총액 $1억↑")
+    gainers = get_gainers_data()
+    if gainers:
+        update_airtable(gainers, "전일대비등락률상위")
         
-    print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
+    # 2. 거래대금상위
+    print("\n[거래대금상위]")
+    print("기준: 현재가 $5↑, 시가총액 $1억↑")
+    volume_leaders = get_volume_leaders()
+    if volume_leaders:
+        update_airtable(volume_leaders, "거래대금상위")
+        
+    # 3. 시가총액상위
+    print("\n[시가총액상위]")
+    print("기준: 현재가 $5↑, 거래량 100만주↑")
+    market_cap_leaders = get_market_cap_leaders()
+    if market_cap_leaders:
+        update_airtable(market_cap_leaders, "시가총액상위")
+        
+    # 4. 52주 신고가
+    print("\n[52주 신고가]")
+    print("기준: 현재가 $5↑, 거래량 100만주↑, 시가총액 $1억↑")
+    high_52_week = get_52_week_high()
+    if high_52_week:
+        update_airtable(high_52_week, "52주신고가")
     
-    filtered_stocks = filter_stocks(all_stocks)
-    print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
-    
-    if filtered_stocks:
-        update_airtable(filtered_stocks, "전일대비등락률상위")
-    
-    print("\n모든 데이터 처리 완료!")
+    print("\n=== 모든 데이터 처리 완료 ===")
 
 if __name__ == "__main__":
     main()
