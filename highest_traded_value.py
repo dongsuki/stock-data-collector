@@ -7,7 +7,7 @@ import time
 POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
 AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
-TABLE_NAME = "거래대금 상위 데이터"
+TABLE_NAME = "미국주식 데이터"
 
 def convert_exchange_code(mic):
     """거래소 코드를 읽기 쉬운 형태로 변환"""
