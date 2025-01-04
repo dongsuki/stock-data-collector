@@ -5,9 +5,9 @@ from airtable import Airtable
 import time
 
 # API 키와 Airtable 테이블 정보
-POLYGON_API_KEY = "YOUR_POLYGON_API_KEY"
-AIRTABLE_API_KEY = "YOUR_AIRTABLE_API_KEY"
-AIRTABLE_BASE_ID = "YOUR_AIRTABLE_BASE_ID"
+POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"  # Polygon API Key
+AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
+AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
 def convert_exchange_code(mic):
@@ -40,41 +40,32 @@ def get_all_stocks():
         print(f"데이터 수집 중 에러 발생: {str(e)}")
         return []
 
-def filter_stocks(stocks):
-    """전일대비등락률 상위와 거래대금 상위 필터링"""
-    filtered_change = []
-    total = len(stocks)
-    
-    print(f"총 {total}개 종목 필터링 시작...")
-    
-    for i, stock in enumerate(stocks, 1):
+def calculate_top_traded_value(stocks):
+    """거래대금 상위 20개 계산"""
+    for stock in stocks:
         day_data = stock.get('day', {})
         close_price = float(day_data.get('c', 0))  # 현재가
         volume = int(day_data.get('v', 0))  # 거래량
-        change = float(stock.get('todaysChangePerc', 0))  # 등락률
         traded_value = close_price * volume  # 거래대금
-        
         stock['traded_value'] = traded_value
 
-        # 전일대비등락률 상위 조건
-        if close_price >= 5 and volume >= 1000000 and change >= 5:
-            stock_details = get_stock_details(stock['ticker'])
-            if stock_details:
-                market_cap = float(stock_details.get('market_cap', 0))
-                if market_cap >= 500000000:  # 시가총액 5억 이상
-                    stock['name'] = stock_details.get('name', '')
-                    stock['market_cap'] = market_cap
-                    stock['primary_exchange'] = stock_details.get('primary_exchange', '')
-                    filtered_change.append(stock)
-        
-        if i % 100 == 0:
-            print(f"진행 중... {i}/{total}")
-    
-    return filtered_change
-
-def calculate_top_traded_value(stocks):
-    """거래대금 상위 20개 계산"""
+    # 거래대금을 기준으로 상위 20개 선택
     return sorted(stocks, key=lambda x: x.get('traded_value', 0), reverse=True)[:20]
+
+def get_stock_details(ticker):
+    """종목 상세정보 조회"""
+    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
+    params = {'apiKey': POLYGON_API_KEY}
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json().get('results', {})
+        print(f"상세정보 조회 실패 ({ticker}): {response.status_code}")
+        return None
+    except Exception as e:
+        print(f"상세정보 조회 중 에러 발생 ({ticker}): {str(e)}")
+        return None
 
 def update_airtable(stock_data, category):
     """Airtable에 데이터 추가"""
@@ -84,19 +75,26 @@ def update_airtable(stock_data, category):
     for stock in stock_data:
         try:
             day_data = stock.get('day', {})
-            
+            ticker = stock.get('ticker', '')
+
+            # 종목 상세 정보 추가
+            details = get_stock_details(ticker)
+            stock_name = details.get('name', 'Unknown') if details else 'Unknown'
+            market_cap = float(details.get('market_cap', 0)) if details else 0
+            primary_exchange = details.get('primary_exchange', '') if details else 'Unknown'
+
             record = {
-                '티커': stock.get('ticker', ''),
-                '종목명': stock.get('name', 'Unknown'),
+                '티커': ticker,
+                '종목명': stock_name,
                 '현재가': float(day_data.get('c', 0)),
+                '등락률': float(stock.get('todaysChangePerc', 0)),
                 '거래량': int(day_data.get('v', 0)),
                 '거래대금': float(stock.get('traded_value', 0)),
+                '시가총액': market_cap,
+                '거래소 정보': convert_exchange_code(primary_exchange),
                 '업데이트 시간': current_date,
                 '분류': category
             }
-            
-            if stock.get('primary_exchange'):
-                record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
             
             airtable.insert(record)
             print(f"새 데이터 추가 완료: {record['티커']} ({category})")
@@ -115,11 +113,6 @@ def main():
         return
     
     print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
-
-    # 전일대비등락률 상위 필터링
-    filtered_change = filter_stocks(all_stocks)
-    print(f"\n조건을 만족하는 전일대비등락률 상위 종목 수: {len(filtered_change)}개")
-    update_airtable(filtered_change, "전일대비등락률 상위")
 
     # 거래대금 상위 20개 계산
     top_traded_value = calculate_top_traded_value(all_stocks)
