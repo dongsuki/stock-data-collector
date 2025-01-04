@@ -83,7 +83,7 @@ def filter_stocks(stocks):
     return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
 
 def update_airtable(stock_data, category):
-    """Airtable에 데이터 업데이트"""
+    """Airtable에 데이터 추가"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
     
@@ -108,15 +108,9 @@ def update_airtable(stock_data, category):
             if not record['티커']:
                 print(f"필수 필드 누락: {stock}")
                 continue
-                
-            existing_records = airtable.search('티커', record['티커'])
             
-            if existing_records:
-                airtable.update(existing_records[0]['id'], record)
-                print(f"데이터 업데이트 완료: {record['티커']} ({category})")
-            else:
-                airtable.insert(record)
-                print(f"새 데이터 추가 완료: {record['티커']} ({category})")
+            airtable.insert(record)  # 항상 새 레코드 추가
+            print(f"새 데이터 추가 완료: {record['티커']} ({category})")
             
             time.sleep(0.2)
             
