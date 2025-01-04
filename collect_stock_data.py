@@ -1,5 +1,3 @@
-전일대비등락률 상위
-
 import os
 import requests
 from datetime import datetime
