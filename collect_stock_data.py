@@ -41,22 +41,16 @@ def get_all_stocks():
         return []
 
 def calculate_top_traded_value(stocks):
-    """거래대금 상위 20개 계산 (ETF 제외)"""
-    filtered_stocks = []
+    """거래대금 상위 20개 계산"""
     for stock in stocks:
-        if stock.get('is_etf', False):  # ETF 제외
-            continue
-        
         day_data = stock.get('day', {})
         close_price = float(day_data.get('c', 0))  # 현재가
         volume = int(day_data.get('v', 0))  # 거래량
         traded_value = close_price * volume  # 거래대금
-        
         stock['traded_value'] = traded_value
-        filtered_stocks.append(stock)
 
     # 거래대금을 기준으로 상위 20개 선택
-    return sorted(filtered_stocks, key=lambda x: x.get('traded_value', 0), reverse=True)[:20]
+    return sorted(stocks, key=lambda x: x.get('traded_value', 0), reverse=True)[:20]
 
 def get_stock_details(ticker):
     """종목 상세정보 조회"""
