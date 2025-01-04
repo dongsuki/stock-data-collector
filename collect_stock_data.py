@@ -52,20 +52,6 @@ def calculate_top_traded_value(stocks):
     # 거래대금을 기준으로 상위 20개 선택
     return sorted(stocks, key=lambda x: x.get('traded_value', 0), reverse=True)[:20]
 
-def get_stock_details(ticker):
-    """종목 상세정보 조회"""
-    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
-    params = {'apiKey': POLYGON_API_KEY}
-    
-    try:
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            return response.json().get('results', {})
-        return None
-    except Exception as e:
-        print(f"상세정보 조회 실패 ({ticker}): {str(e)}")
-        return None
-
 def update_airtable(stock_data, category):
     """Airtable에 데이터 추가"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
@@ -75,22 +61,21 @@ def update_airtable(stock_data, category):
         try:
             day_data = stock.get('day', {})
             
-            # 종목 상세 정보 추가
-            details = get_stock_details(stock.get('ticker'))
-            if details:
-                stock['name'] = details.get('name', 'Unknown')
-                stock['todaysChangePerc'] = details.get('todaysChangePerc', 0)  # 등락률
-                stock['market_cap'] = float(details.get('market_cap', 0))
-                stock['primary_exchange'] = details.get('primary_exchange', '')
+            # 기본 데이터
+            close_price = float(day_data.get('c', 0))
+            volume = int(day_data.get('v', 0))
+            traded_value = stock.get('traded_value', 0)
+            todays_change_perc = stock.get('todaysChangePerc', 0)
 
+            # 기본 데이터만으로 저장
             record = {
                 '티커': stock.get('ticker', ''),
-                '종목명': stock.get('name', 'Unknown'),
-                '현재가': float(day_data.get('c', 0)),
-                '등락률': float(stock.get('todaysChangePerc', 0)),
-                '거래량': int(day_data.get('v', 0)),
-                '거래대금': float(stock.get('traded_value', 0)),
-                '시가총액': stock.get('market_cap', 0),
+                '종목명': stock.get('name', 'Unknown'),  # 기본값 'Unknown'
+                '현재가': close_price,
+                '등락률': todays_change_perc,
+                '거래량': volume,
+                '거래대금': traded_value,
+                '시가총액': stock.get('market_cap', 0),  # market_cap 추가
                 '거래소 정보': convert_exchange_code(stock.get('primary_exchange', '')),
                 '업데이트 시간': current_date,
                 '분류': category
