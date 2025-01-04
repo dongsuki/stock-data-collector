@@ -13,18 +13,48 @@ TABLE_NAME = "미국주식 데이터"
 # Initialize Airtable
 airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
 
+def get_stock_quote(symbol):
+    """Get detailed quote for a stock"""
+    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            quotes = response.json()
+            if quotes and len(quotes) > 0:
+                return quotes[0]
+    except Exception as e:
+        print(f"Error getting quote for {symbol}: {str(e)}")
+    return None
+
 def get_gainers():
-    """Get top gainers from FMP API"""
+    """Get top gainers from FMP API and enrich with quote data"""
     url = f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_API_KEY}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        print(f"Retrieved {len(data)} gainers")
-        # Print first record for debugging
-        if data:
-            print("Sample record:", data[0])
-        return data
-    print(f"Error getting gainers: {response.status_code}")
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            gainers = response.json()
+            print(f"Retrieved {len(gainers)} gainers")
+            
+            # Enrich with quote data
+            enriched_gainers = []
+            for gainer in gainers:
+                symbol = gainer.get('symbol')
+                if symbol:
+                    quote = get_stock_quote(symbol)
+                    if quote:
+                        # Merge gainer and quote data
+                        gainer.update(quote)
+                        enriched_gainers.append(gainer)
+                        time.sleep(0.2)  # Rate limiting for API
+            
+            print(f"Enriched {len(enriched_gainers)} stocks with quote data")
+            if enriched_gainers:
+                print("Sample enriched record:", enriched_gainers[0])
+            return enriched_gainers
+            
+        print(f"Error getting gainers: {response.status_code}")
+    except Exception as e:
+        print(f"Error in get_gainers: {str(e)}")
     return []
 
 def filter_stocks(stocks):
@@ -33,14 +63,19 @@ def filter_stocks(stocks):
     print(f"Filtering {len(stocks)} stocks...")
     for stock in stocks:
         try:
-            if (float(stock.get('price', 0)) >= 5 and  # Price >= $5
-                float(stock.get('avgVolume', 0)) >= 1000000 and  # Volume >= 1M
-                float(stock.get('changesPercentage', 0)) >= 5 and  # Change >= 5%
-                float(stock.get('marketCap', 0)) >= 100000000):  # Market Cap >= $100M
+            price = float(stock.get('price', 0))
+            volume = float(stock.get('volume', 0))  # Using current day's volume
+            change_percent = float(stock.get('changesPercentage', 0))
+            market_cap = float(stock.get('marketCap', 0))
+            
+            if (price >= 5 and  # Price >= $5
+                volume >= 1000000 and  # Volume >= 1M
+                change_percent >= 5 and  # Change >= 5%
+                market_cap >= 100000000):  # Market Cap >= $100M
                 filtered.append(stock)
+                print(f"Matched: {stock['symbol']} - Price: ${price:.2f}, Volume: {volume:,.0f}, Change: {change_percent:.2f}%, Market Cap: ${market_cap:,.0f}")
         except (ValueError, TypeError) as e:
             print(f"Error processing stock {stock.get('symbol', 'Unknown')}: {str(e)}")
-            print(f"Stock data: {stock}")
             continue
     
     print(f"Found {len(filtered)} stocks matching criteria")
@@ -51,7 +86,10 @@ def map_exchange(exchange):
     exchange_map = {
         'XNAS': 'NASDAQ',
         'XNYS': 'NYSE',
-        'XASE': 'AMEX'
+        'XASE': 'AMEX',
+        'NASDAQ': 'NASDAQ',
+        'NYSE': 'NYSE',
+        'AMEX': 'AMEX'
     }
     return exchange_map.get(exchange, exchange)
 
@@ -64,7 +102,7 @@ def prepare_airtable_record(stock):
                 "종목명": stock.get('name', ''),
                 "현재가": float(stock.get('price', 0)),
                 "등락률": float(stock.get('changesPercentage', 0)),
-                "거래량": float(stock.get('avgVolume', 0)),
+                "거래량": float(stock.get('volume', 0)),
                 "시가총액": float(stock.get('marketCap', 0)),
                 "거래소 정보": map_exchange(stock.get('exchange', '')),
                 "업데이트 시간": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -105,6 +143,7 @@ def main():
                 airtable.insert(record['fields'])
                 success_count += 1
                 time.sleep(0.2)  # Rate limiting
+                print(f"Successfully uploaded {stock.get('symbol')}")
             except Exception as e:
                 print(f"Error uploading {stock.get('symbol', 'Unknown')}: {str(e)}")
     
