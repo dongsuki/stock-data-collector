@@ -68,7 +68,7 @@ def filter_stocks(stocks):
         if i % 10 == 0:
             print(f"진행 중... {i}/{total}")
         
-        if price >= 5 and volume >= 1000000 and change >= 5:
+        if price >= 5 and volume >= 1000000 and change >= 5:  # 등락률 5% 이상으로 수정
             details = get_stock_details(stock['ticker'])
             if details:
                 market_cap = float(details.get('market_cap', 0))
@@ -83,9 +83,8 @@ def filter_stocks(stocks):
     return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
 
 def update_airtable(stock_data, category):
-    """Airtable에 데이터 추가"""
+    """Airtable에 데이터 업데이트"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    current_date = datetime.now().strftime("%Y-%m-%d")
     current_date = datetime.now().strftime("%Y-%m-%d")
     
     for stock in stock_data:
@@ -109,10 +108,15 @@ def update_airtable(stock_data, category):
             if not record['티커']:
                 print(f"필수 필드 누락: {stock}")
                 continue
+                
+            existing_records = airtable.search('티커', record['티커'])
             
-            # 항상 새로운 레코드로 추가
-            airtable.insert(record)
-            print(f"새 데이터 추가 완료: {record['티커']} ({category})")
+            if existing_records:
+                airtable.update(existing_records[0]['id'], record)
+                print(f"데이터 업데이트 완료: {record['티커']} ({category})")
+            else:
+                airtable.insert(record)
+                print(f"새 데이터 추가 완료: {record['티커']} ({category})")
             
             time.sleep(0.2)
             
@@ -124,7 +128,7 @@ def main():
     print("필터링 조건:")
     print("- 현재가 >= $5")
     print("- 거래량 >= 1,000,000주")
-    print("- 등락률 >= 5%")
+    print("- 등락률 >= 5%")  # 메시지 수정
     print("- 시가총액 >= $100,000,000")
     
     all_stocks = get_all_stocks()
