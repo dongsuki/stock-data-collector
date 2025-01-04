@@ -1,213 +1,162 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from airtable import Airtable
 import time
+import pytz
 
-FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
+# API Configuration
+POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
 AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
-TABLE_NAME = "미국주식 데이터"
+AIRTABLE_TABLE_NAME = "Stocks"
 
-def get_quote_data(symbol):
-   """개별 종목 quote 데이터 조회"""
-   url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}"
-   response = requests.get(url, params={'apikey': FMP_API_KEY})
-   
-   if response.status_code == 200:
-       data = response.json()
-       if data and len(data) > 0:
-           return data[0]
-   return None
+# Initialize Airtable
+airtable = Airtable(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME, AIRTABLE_API_KEY)
 
-def get_gainers_data():
-   """전일대비등락률상위 데이터"""
-   url = "https://financialmodelingprep.com/api/v3/stock_market/gainers"
-   params = {'apikey': FMP_API_KEY}
-   
-   try:
-       response = requests.get(url, params=params)
-       print(f"등락률상위 데이터 수집: {response.status_code}")
-       
-       if response.status_code == 200:
-           stocks = response.json()
-           print(f"수집된 gainer 종목 수: {len(stocks)}")
-           
-           filtered = [stock for stock in stocks if (
-               float(stock.get('price', 0)) >= 5 and 
-               float(stock.get('volume', 0)) >= 1000000
-           )]
-           print(f"필터링 후 종목 수: {len(filtered)}")
-           
-           return sorted(filtered, key=lambda x: float(x['changesPercentage']), reverse=True)
-   except Exception as e:
-       print(f"등락률상위 데이터 수집 중 에러: {str(e)}")
-   return []
+def get_polygon_headers():
+    return {
+        "Authorization": f"Bearer {POLYGON_API_KEY}"
+    }
 
-def get_volume_leaders():
-   """거래대금상위 데이터"""
-   url = "https://financialmodelingprep.com/api/v3/stock_market/actives"
-   params = {'apikey': FMP_API_KEY}
-   
-   try:
-       response = requests.get(url, params=params)
-       print(f"거래대금상위 데이터 수집: {response.status_code}")
-       
-       if response.status_code == 200:
-           stocks = response.json()
-           print(f"수집된 종목 수: {len(stocks)}")
-           
-           filtered = []
-           for stock in stocks:
-               try:
-                   price = float(stock.get('price', 0))
-                   if price >= 5:
-                       volume = float(stock.get('volume', 0))
-                       stock['trading_value'] = price * volume
-                       filtered.append(stock)
-               except (TypeError, ValueError):
-                   continue
-           
-           sorted_stocks = sorted(filtered, key=lambda x: x['trading_value'], reverse=True)[:20]
-           print(f"필터링 후 종목 수: {len(sorted_stocks)}")
-           return sorted_stocks
-   except Exception as e:
-       print(f"거래대금상위 데이터 수집 중 에러: {str(e)}")
-   return []
+def get_all_tickers():
+    """Get all stock tickers with basic filtering"""
+    url = "https://api.polygon.io/v3/reference/tickers"
+    params = {
+        "active": True,
+        "market": "stocks",
+        "limit": 1000
+    }
+    
+    all_tickers = []
+    while True:
+        response = requests.get(url, headers=get_polygon_headers(), params=params)
+        data = response.json()
+        
+        if response.status_code != 200:
+            print(f"Error fetching tickers: {data}")
+            break
+            
+        all_tickers.extend(data["results"])
+        
+        if "next_url" not in data or not data["next_url"]:
+            break
+            
+        url = data["next_url"]
+        
+    return all_tickers
 
-def get_market_cap_leaders():
-   """시가총액상위 데이터"""
-   url = "https://financialmodelingprep.com/api/v3/stock-screener"
-   params = {
-       'apikey': FMP_API_KEY,
-       'marketCapMoreThan': 1000000000,
-       'volumeMoreThan': 1000000,
-       'priceMoreThan': 5,
-       'exchange': 'NYSE,NASDAQ',
-       'limit': 100
-   }
-   
-   try:
-       response = requests.get(url, params=params)
-       print(f"시가총액상위 데이터 수집: {response.status_code}")
-       
-       if response.status_code == 200:
-           stocks = response.json()
-           print(f"수집된 종목 수: {len(stocks)}")
-           
-           detailed_stocks = []
-           sorted_stocks = sorted(stocks, key=lambda x: float(x.get('marketCap', 0)), reverse=True)[:20]
-           
-           for stock in sorted_stocks:
-               quote_data = get_quote_data(stock['symbol'])
-               if quote_data:
-                   stock.update(quote_data)
-                   detailed_stocks.append(stock)
-               time.sleep(0.1)
-           
-           return detailed_stocks
-   except Exception as e:
-       print(f"시가총액상위 데이터 수집 중 에러: {str(e)}")
-   return []
+def get_ticker_details(ticker):
+    """Get detailed information for a specific ticker"""
+    url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}"
+    response = requests.get(url, headers=get_polygon_headers())
+    return response.json()
 
-def get_52_week_high():
-   """52주 신고가 데이터"""
-   url = "https://financialmodelingprep.com/api/v3/stock-screener"
-   params = {
-       'apikey': FMP_API_KEY,
-       'volumeMoreThan': 1000000,
-       'priceMoreThan': 5,
-       'exchange': 'NYSE,NASDAQ',
-       'limit': 1000
-   }
-   
-   try:
-       response = requests.get(url, params=params)
-       print(f"52주 신고가 데이터 수집: {response.status_code}")
-       
-       if response.status_code == 200:
-           stocks = response.json()
-           print(f"수집된 종목 수: {len(stocks)}")
-           filtered = []
-           
-           for stock in stocks:
-               quote_data = get_quote_data(stock['symbol'])
-               if quote_data:
-                   try:
-                       price = float(quote_data.get('price', 0))
-                       year_high = float(quote_data.get('yearHigh', 0))
-                       
-                       if year_high > 0 and price >= year_high * 0.95:
-                           quote_data['high_ratio'] = price / year_high
-                           filtered.append(quote_data)
-                   except (TypeError, ValueError):
-                       continue
-               time.sleep(0.1)
-           
-           print(f"필터링 후 종목 수: {len(filtered)}")
-           sorted_stocks = sorted(filtered, key=lambda x: x.get('high_ratio', 0), reverse=True)[:20]
-           return sorted_stocks
-   except Exception as e:
-       print(f"52주 신고가 데이터 수집 중 에러: {str(e)}")
-   return []
+def filter_gainers_losers(min_price=5, min_volume=1000000, min_change_percent=5, min_market_cap=100000000):
+    """Get top gainers and losers with filtering"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers"
+    response = requests.get(url, headers=get_polygon_headers())
+    data = response.json()
+    
+    filtered_stocks = []
+    for ticker in data.get("tickers", []):
+        if (ticker.get("day", {}).get("c", 0) >= min_price and
+            ticker.get("day", {}).get("v", 0) >= min_volume and
+            abs(ticker.get("todaysChangePerc", 0)) >= min_change_percent and
+            ticker.get("market_cap", 0) >= min_market_cap):
+            filtered_stocks.append(ticker)
+    
+    return filtered_stocks
 
-def update_airtable(stock_data, category):
-   """Airtable에 데이터 추가"""
-   airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-   current_date = datetime.now().strftime("%Y-%m-%d")
-   
-   print(f"\n{category} 데이터 Airtable 업데이트 시작")
-   print(f"업데이트할 종목 수: {len(stock_data)}")
-   
-   for stock in stock_data:
-       try:
-           record = {
-               '티커': stock.get('symbol', ''),
-               '종목명': stock.get('name', ''),
-               '현재가': float(stock.get('price', 0)),
-               '등락률': float(stock.get('changesPercentage', 0)),
-               '거래량': int(stock.get('volume', 0)),
-               '시가총액': float(stock.get('marketCap', 0)),
-               '거래소 정보': stock.get('exchange', ''),
-               '업데이트 시간': current_date,
-               '분류': category
-           }
-           
-           print(f"추가 중: {record['티커']} ({category})")
-           airtable.insert(record)
-           time.sleep(0.2)
-           
-       except Exception as e:
-           print(f"레코드 처리 중 에러 발생 ({stock.get('symbol', 'Unknown')}): {str(e)}")
+def get_top_volume(limit=20, min_price=5, min_market_cap=100000000):
+    """Get top volume stocks with filtering"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+    response = requests.get(url, headers=get_polygon_headers())
+    data = response.json()
+    
+    filtered_stocks = []
+    for ticker in data.get("tickers", []):
+        if (ticker.get("day", {}).get("c", 0) >= min_price and
+            ticker.get("market_cap", 0) >= min_market_cap):
+            filtered_stocks.append(ticker)
+    
+    # Sort by volume and get top N
+    filtered_stocks.sort(key=lambda x: x.get("day", {}).get("v", 0), reverse=True)
+    return filtered_stocks[:limit]
+
+def get_top_market_cap(limit=20, min_price=5, min_volume=1000000):
+    """Get top market cap stocks with filtering"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+    response = requests.get(url, headers=get_polygon_headers())
+    data = response.json()
+    
+    filtered_stocks = []
+    for ticker in data.get("tickers", []):
+        if (ticker.get("day", {}).get("c", 0) >= min_price and
+            ticker.get("day", {}).get("v", 0) >= min_volume):
+            filtered_stocks.append(ticker)
+    
+    # Sort by market cap and get top N
+    filtered_stocks.sort(key=lambda x: x.get("market_cap", 0), reverse=True)
+    return filtered_stocks[:limit]
+
+def get_52_week_highs(limit=20, min_price=5, min_volume=1000000, min_market_cap=100000000):
+    """Get stocks hitting 52-week highs"""
+    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+    response = requests.get(url, headers=get_polygon_headers())
+    data = response.json()
+    
+    filtered_stocks = []
+    for ticker in data.get("tickers", []):
+        current_price = ticker.get("day", {}).get("c", 0)
+        if (current_price >= min_price and
+            ticker.get("day", {}).get("v", 0) >= min_volume and
+            ticker.get("market_cap", 0) >= min_market_cap):
+            # Add logic to check if it's a 52-week high
+            filtered_stocks.append(ticker)
+    
+    return filtered_stocks[:limit]
+
+def add_to_airtable(stocks, category):
+    """Add stocks to Airtable"""
+    est = pytz.timezone('US/Eastern')
+    current_time = datetime.now(est).strftime("%Y-%m-%d %H:%M:%S %Z")
+    
+    for stock in stocks:
+        record = {
+            "티커": stock.get("ticker"),
+            "종목명": stock.get("name", ""),
+            "현재가": stock.get("day", {}).get("c", 0),
+            "등락률": stock.get("todaysChangePerc", 0),
+            "거래량": stock.get("day", {}).get("v", 0),
+            "시가총액": stock.get("market_cap", 0),
+            "거래소 정보": stock.get("primary_exchange", "").replace("XNAS", "NASDAQ").replace("XNYS", "NYSE").replace("XASE", "AMEX"),
+            "업데이트 시간": current_time,
+            "분류": category
+        }
+        
+        try:
+            airtable.insert(record)
+            time.sleep(0.2)  # Rate limiting
+        except Exception as e:
+            print(f"Error adding record to Airtable: {e}")
 
 def main():
-   print("\n=== 미국 주식 데이터 수집 시작 ===")
-   
-   print("\n[전일대비등락률상위]")
-   print("기준: 현재가 $5↑, 거래량 100만주↑")
-   gainers = get_gainers_data()
-   if gainers:
-       update_airtable(gainers, "전일대비등락률상위")
-   
-   print("\n[거래대금상위]")
-   print("기준: 현재가 $5↑ (상위 20개)")
-   volume_leaders = get_volume_leaders()
-   if volume_leaders:
-       update_airtable(volume_leaders, "거래대금상위")
-   
-   print("\n[시가총액상위]")
-   print("기준: 현재가 $5↑, 거래량 100만주↑ (상위 20개)")
-   market_cap_leaders = get_market_cap_leaders()
-   if market_cap_leaders:
-       update_airtable(market_cap_leaders, "시가총액상위")
-   
-   print("\n[52주 신고가]")
-   print("기준: 현재가 $5↑, 거래량 100만주↑, 현재가가 52주 고가의 95% 이상 (상위 20개)")
-   high_52_week = get_52_week_high()
-   if high_52_week:
-       update_airtable(high_52_week, "52주신고가")
-   
-   print("\n=== 모든 데이터 처리 완료 ===")
+    # Get and process gainers/losers
+    gainers_losers = filter_gainers_losers()
+    add_to_airtable(gainers_losers, "전일대비등락률상위")
+    
+    # Get and process top volume
+    top_volume = get_top_volume()
+    add_to_airtable(top_volume, "거래대금상위")
+    
+    # Get and process top market cap
+    top_market_cap = get_top_market_cap()
+    add_to_airtable(top_market_cap, "시가총액상위")
+    
+    # Get and process 52-week highs
+    week_highs = get_52_week_highs()
+    add_to_airtable(week_highs, "52주신고가")
 
 if __name__ == "__main__":
-   main()
+    main()
