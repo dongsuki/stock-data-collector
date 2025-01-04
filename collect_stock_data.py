@@ -72,7 +72,7 @@ def filter_stocks(stocks):
             details = get_stock_details(stock['ticker'])
             if details:
                 market_cap = float(details.get('market_cap', 0))
-                if market_cap >= 100000000:
+                if market_cap >= 500000000:
                     stock['name'] = details.get('name', '')
                     stock['market_cap'] = market_cap
                     stock['primary_exchange'] = details.get('primary_exchange', '')
@@ -123,7 +123,7 @@ def main():
     print("- 현재가 >= $5")
     print("- 거래량 >= 1,000,000주")
     print("- 등락률 >= 5%")  # 메시지 수정
-    print("- 시가총액 >= $100,000,000")
+    print("- 시가총액 >= $500,000,000")
     
     all_stocks = get_all_stocks()
     if not all_stocks:
