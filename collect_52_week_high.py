@@ -41,13 +41,18 @@ def get_52week_high_stocks():
 
     filtered_stocks = []
     for stock in stocks:
-        if stock.get('price') and stock.get('yearHigh'):
-            high_ratio = (stock['price'] / stock['yearHigh']) * 100
-            print(f"종목: {stock['symbol']}, 현재가: {stock['price']}, 52주 신고가: {stock['yearHigh']}, 비율: {high_ratio:.2f}%")
-            if stock['price'] >= stock['yearHigh'] * 0.95:
-                print(f"조건 충족: {stock['symbol']}")
-                stock['highRatio'] = high_ratio
-                filtered_stocks.append(stock)
+        # 디버깅 정보 출력
+        print(f"검사 중: {stock.get('symbol', 'N/A')} - 현재가: {stock.get('price')} - 52주 신고가: {stock.get('yearHigh')} - 거래량: {stock.get('volume')} - 시가총액: {stock.get('marketCap')}")
+
+        if not stock.get('price') or not stock.get('yearHigh'):
+            print(f"필드 누락: {stock.get('symbol', 'N/A')}")
+            continue
+
+        high_ratio = (stock['price'] / stock['yearHigh']) * 100
+        if stock['price'] >= stock['yearHigh'] * 0.95:
+            print(f"조건 충족: {stock['symbol']} - 현재가: {stock['price']} - 52주 신고가: {stock['yearHigh']} - 비율: {high_ratio:.2f}%")
+            stock['highRatio'] = high_ratio
+            filtered_stocks.append(stock)
 
     return sorted(filtered_stocks, key=lambda x: x['highRatio'], reverse=True)[:20]
 
