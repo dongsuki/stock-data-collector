@@ -30,10 +30,3 @@ jobs:
         AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
       run: python ./collect_stock_data.py
-
-    - name: Run highest_traded_value.py
-      env:
-        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
-        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./highest_traded_value.py
