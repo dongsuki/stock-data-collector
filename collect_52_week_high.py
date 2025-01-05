@@ -30,7 +30,9 @@ def get_batch_stock_details(symbols):
         print(f"Batch 요청 실패: {response.status_code}")
         return []
 
-    return response.json()
+    data = response.json()
+    print(f"Batch 응답 데이터: {data[:5]}")  # 디버깅용 첫 5개 데이터 출력
+    return data
 
 def get_52week_high_stocks():
     """52주 신고가 근처에 있는 주식 데이터 가져오기"""
@@ -55,7 +57,7 @@ def get_52week_high_stocks():
     # 거래소 필터링
     filtered_by_exchange = [
         stock for stock in stocks 
-        if stock.get('exchange') in ['NYSE', 'NASDAQ']
+        if stock.get('exchangeShortName') in ['NYSE', 'NASDAQ']
     ]
     print(f"필터링된 거래소 종목 수: {len(filtered_by_exchange)}")
 
@@ -75,11 +77,15 @@ def get_52week_high_stocks():
     # 필터링
     filtered_stocks = []
     for stock in detailed_stocks:
-        if stock.get('price') and stock.get('yearHigh'):
-            high_ratio = (stock['price'] / stock['yearHigh']) * 100
-            if stock['price'] >= stock['yearHigh'] * 0.95:
-                stock['highRatio'] = high_ratio
-                filtered_stocks.append(stock)
+        if not stock.get('price') or not stock.get('yearHigh'):
+            print(f"필수 필드 누락: {stock.get('symbol')} - 응답 데이터: {stock}")
+            continue
+        high_ratio = (stock['price'] / stock['yearHigh']) * 100
+        if stock['price'] < stock['yearHigh'] * 0.95:
+            print(f"조건 미충족: {stock.get('symbol')} - 현재가: {stock['price']} - 52주 신고가: {stock['yearHigh']} - 비율: {high_ratio:.2f}%")
+            continue
+        stock['highRatio'] = high_ratio
+        filtered_stocks.append(stock)
 
     return sorted(filtered_stocks, key=lambda x: x['highRatio'], reverse=True)[:20]
 
