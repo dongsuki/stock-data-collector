@@ -93,18 +93,16 @@ def update_airtable(stock_data):
     records = []
     for stock in stock_data:
         record = {
-            'fields': {
-                '티커': stock.get('symbol', ''),
-                '종목명': stock.get('name', ''),
-                '현재가': float(stock.get('price', 0)),
-                '52주 신고가': float(stock.get('yearHigh', 0)),
-                '신고가 비율(%)': round(stock.get('highRatio', 0), 2),
-                '거래량': int(stock.get('volume', 0)),
-                '시가총액': float(stock.get('marketCap', 0)),
-                '업데이트 시간': current_date,
-                '분류': '52주신고가상위',
-                '거래소 정보': stock.get('exchange', '')
-            }
+            '티커': stock.get('symbol', ''),
+            '종목명': stock.get('name', ''),
+            '현재가': float(stock.get('price', 0)),
+            '52주 신고가': float(stock.get('yearHigh', 0)),
+            '신고가 비율(%)': round(stock.get('highRatio', 0), 2),
+            '거래량': int(stock.get('volume', 0)),
+            '시가총액': float(stock.get('marketCap', 0)),
+            '업데이트 시간': current_date,
+            '분류': '52주신고가상위',
+            '거래소 정보': stock.get('exchange', '')
         }
         records.append(record)
     
