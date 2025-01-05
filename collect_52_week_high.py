@@ -1,6 +1,6 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta  # timedelta를 명확히 임포트
 from airtable import Airtable
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
