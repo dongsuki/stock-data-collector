@@ -19,32 +19,11 @@ def get_session():
     session.mount("https://", adapter)
     return session
 
-def get_bulk_quotes(session, symbols):
-    """여러 주식의 정보를 한 번에 가져오기"""
-    # 심볼들을 쉼표로 구분된 문자열로 변환
-    symbols_str = ','.join(symbols)
-    url = f"https://financialmodelingprep.com/api/v3/quote/{symbols_str}"
-    params = {'apikey': FMP_API_KEY}
-    
-    try:
-        response = session.get(url, params=params)
-        if response.status_code == 200:
-            # 응답 데이터를 심볼을 키로 하는 딕셔너리로 변환
-            return {quote['symbol']: quote for quote in response.json()}
-    except Exception as e:
-        print(f"Bulk Quote API 호출 실패: {str(e)}")
-    return {}
-
 def get_52week_high_stocks():
     """52주 신고가 근처에 있는 주식 데이터 가져오기"""
-    url = "https://financialmodelingprep.com/api/v3/available-traded/list"
-    params = {
-        'marketCapMoreThan': 500000000,
-        'priceMoreThan': 5,
-        'volumeMoreThan': 1000000,
-        'exchange': 'NYSE,NASDAQ',  # NYSE와 NASDAQ만 포함
-        'apikey': FMP_API_KEY
-    }
+    # NYSE, NASDAQ 상장 종목 전체 quote 데이터 가져오기
+    url = "https://financialmodelingprep.com/api/v3/quotes/index"
+    params = {'apikey': FMP_API_KEY}
     
     session = get_session()
     response = session.get(url, params=params)
@@ -53,37 +32,22 @@ def get_52week_high_stocks():
         raise Exception(f"API 호출 실패: {response.status_code}")
     
     stocks = response.json()
-    print(f"응답된 주식 데이터 개수: {len(stocks)}")
     
-    # 심볼 목록 추출
-    symbols = [stock['symbol'] for stock in stocks if stock.get('symbol')]
-    
-    # 심볼을 100개씩 나누어 bulk API 호출
+    # 조건에 맞는 종목 필터링
     filtered_stocks = []
-    for i in range(0, len(symbols), 100):
-        chunk_symbols = symbols[i:i+100]
-        quotes = get_bulk_quotes(session, chunk_symbols)
-        
-        for stock in stocks:
-            symbol = stock.get('symbol')
-            if not symbol or symbol not in quotes:
-                continue
-                
-            quote_data = quotes[symbol]
-            stock.update(quote_data)
+    
+    for stock in stocks:
+        if (stock.get('exchange') in ['NYSE', 'NASDAQ'] and  # NYSE, NASDAQ 종목만
+            stock.get('price', 0) >= 5 and                   # 주가 $5 이상
+            stock.get('volume', 0) >= 1000000 and           # 거래량 100만주 이상
+            stock.get('marketCap', 0) >= 500000000 and      # 시가총액 5억달러 이상
+            stock.get('yearHigh', 0) > 0):                  # 52주 고가 존재
             
-            print(f"검사 중: {symbol} - 현재가: {stock.get('price')} - 52주 신고가: {stock.get('yearHigh')} - 거래량: {stock.get('volume')} - 시가총액: {stock.get('marketCap')}")
-            
-            if not stock.get('price') or not stock.get('yearHigh'):
-                print(f"필수 필드 누락: {symbol}")
-                continue
-                
             high_ratio = (stock['price'] / stock['yearHigh']) * 100
-            # 95% 이상이면 모두 포함 (100% 이상도 포함)
-            if high_ratio >= 95:
-                print(f"조건 충족: {symbol} - 현재가: ${stock['price']} - 52주 신고가: ${stock['yearHigh']} - 비율: {high_ratio:.2f}%")
+            if high_ratio >= 95:  # 현재가가 52주 고가의 95% 이상
                 stock['highRatio'] = high_ratio
                 filtered_stocks.append(stock)
+                print(f"조건 충족: {stock['symbol']} - 현재가: ${stock['price']} - 52주 신고가: ${stock['yearHigh']} - 비율: {high_ratio:.2f}%")
     
     return sorted(filtered_stocks, key=lambda x: x['highRatio'], reverse=True)[:20]
 
