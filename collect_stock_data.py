@@ -1,126 +1,139 @@
-import os
 import requests
 from datetime import datetime
 from airtable import Airtable
 import time
 
-# API 키와 Airtable 테이블 정보
-POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"  # Polygon API Key
+# API 설정
+FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
 AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
-def convert_exchange_code(mic):
-    """거래소 코드를 읽기 쉬운 형태로 변환"""
-    exchange_map = {
-        'XNAS': 'NASDAQ',
-        'XNYS': 'NYSE',
-        'XASE': 'AMEX'
-    }
-    return exchange_map.get(mic, mic)
-
-def get_all_stocks():
-    """모든 주식 데이터 가져오기"""
-    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
-    params = {
-        'apiKey': POLYGON_API_KEY,
-        'include_otc': False
-    }
+def get_tradable_companies():
+    """거래 가능한 기업 목록 가져오기"""
+    url = "https://financialmodelingprep.com/api/v3/available-traded/list"
+    params = {'apikey': FMP_API_KEY}
     
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
-            data = response.json()
-            print(f"전체 데이터 샘플:", data['tickers'][0] if data.get('tickers') else 'No data')
-            return data.get('tickers', [])
+            # NYSE와 NASDAQ 상장 기업만 필터링
+            companies = [comp for comp in response.json() 
+                       if comp.get('exchangeShortName') in ['NYSE', 'NASDAQ']]
+            return companies
         else:
-            print(f"API 요청 실패: {response.status_code}")
+            print(f"거래 가능 기업 목록 요청 실패: {response.status_code}")
             return []
     except Exception as e:
-        print(f"데이터 수집 중 에러 발생: {str(e)}")
+        print(f"거래 가능 기업 목록 조회 중 에러: {str(e)}")
         return []
 
-def calculate_top_market_cap(stocks):
-    """시가총액 상위 20개 계산"""
-    stocks_with_details = []
+def get_market_cap_data(companies):
+    """시가총액 데이터 가져오기"""
+    market_cap_data = []
     
-    for stock in stocks:
-        ticker = stock.get('ticker', '')
-        details = get_stock_details(ticker)
+    for company in companies:
+        ticker = company['symbol']
+        url = f"https://financialmodelingprep.com/api/v3/market-capitalization/{ticker}"
+        params = {'apikey': FMP_API_KEY}
         
-        if details and details.get('market_cap'):
-            stock['market_cap'] = float(details.get('market_cap', 0))
-            stock['company_name'] = details.get('name', 'Unknown')
-            stock['primary_exchange'] = details.get('primary_exchange', '')
-            stocks_with_details.append(stock)
-        
-        time.sleep(0.2)  # API 속도 제한 준수
+        try:
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()[0]
+                market_cap_data.append({
+                    'ticker': ticker,
+                    'name': company.get('name', ''),
+                    'exchange': company.get('exchangeShortName', ''),
+                    'market_cap': data.get('marketCap', 0),
+                    'date': data.get('date', '')
+                })
+            time.sleep(0.1)  # API 제한 고려
+        except Exception as e:
+            print(f"시가총액 데이터 조회 중 에러 ({ticker}): {str(e)}")
+            continue
+    
+    # 시가총액 기준 정렬 후 상위 20개 선택
+    return sorted(market_cap_data, key=lambda x: x.get('market_cap', 0), reverse=True)[:20]
 
-    # 시가총액 기준으로 상위 20개 선택
-    return sorted(stocks_with_details, key=lambda x: x.get('market_cap', 0), reverse=True)[:20]
-
-def get_stock_details(ticker):
-    """종목 상세정보 조회"""
-    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
-    params = {'apiKey': POLYGON_API_KEY}
+def get_current_quotes(companies):
+    """현재 시세 데이터 가져오기"""
+    tickers = [company['ticker'] for company in companies]
+    ticker_string = ','.join(tickers)
+    
+    url = f"https://financialmodelingprep.com/api/v3/quote/{ticker_string}"
+    params = {'apikey': FMP_API_KEY}
     
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
-            return response.json().get('results', {})
-        print(f"상세정보 조회 실패 ({ticker}): {response.status_code}")
-        return None
+            return {quote['symbol']: quote for quote in response.json()}
+        else:
+            print(f"시세 데이터 요청 실패: {response.status_code}")
+            return {}
     except Exception as e:
-        print(f"상세정보 조회 중 에러 발생 ({ticker}): {str(e)}")
-        return None
+        print(f"시세 데이터 조회 중 에러: {str(e)}")
+        return {}
 
-def update_airtable(stock_data, category):
-    """Airtable에 데이터 추가"""
+def update_airtable(companies, quotes):
+    """Airtable에 데이터 업데이트"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
     
-    for stock in stock_data:
+    for company in companies:
         try:
-            day_data = stock.get('day', {})
-            ticker = stock.get('ticker', '')
-
+            ticker = company['ticker']
+            quote = quotes.get(ticker, {})
+            
             record = {
                 '티커': ticker,
-                '종목명': stock.get('company_name', 'Unknown'),
-                '현재가': float(day_data.get('c', 0)),
-                '등락률': float(stock.get('todaysChangePerc', 0)),
-                '거래량': int(day_data.get('v', 0)),
-                '거래대금': float(day_data.get('c', 0)) * float(day_data.get('v', 0)),
-                '시가총액': float(stock.get('market_cap', 0)),
-                '거래소 정보': convert_exchange_code(stock.get('primary_exchange', '')),
+                '종목명': company['name'],
+                '현재가': float(quote.get('price', 0)),
+                '등락률': float(quote.get('changesPercentage', 0)),
+                '거래량': int(quote.get('volume', 0)),
+                '거래대금': float(quote.get('price', 0)) * float(quote.get('volume', 0)),
+                '시가총액': float(company['market_cap']),
+                '거래소 정보': company['exchange'],
                 '업데이트 시간': current_date,
-                '분류': category
+                '분류': "시가총액 상위"
             }
             
             airtable.insert(record)
-            print(f"새 데이터 추가 완료: {record['티커']} ({category})")
-            
-            time.sleep(0.2)
+            print(f"데이터 추가 완료: {ticker}")
+            time.sleep(0.2)  # Airtable API 제한 고려
             
         except Exception as e:
-            print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
+            print(f"Airtable 업데이트 중 에러 ({ticker}): {str(e)}")
 
 def main():
-    print("데이터 수집 시작...")
+    print("시가총액 상위 20개 기업 데이터 수집 시작...")
     
-    all_stocks = get_all_stocks()
-    if not all_stocks:
-        print("데이터 수집 실패")
+    # 1. 거래 가능한 기업 목록 가져오기
+    companies = get_tradable_companies()
+    if not companies:
+        print("거래 가능 기업 목록 조회 실패")
         return
+    print(f"거래 가능 기업 {len(companies)}개 조회 완료")
     
-    print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
-
-    # 시가총액 상위 20개 계산
-    top_market_cap = calculate_top_market_cap(all_stocks)
-    print(f"\n시가총액 상위 20개 데이터 선정 완료")
-    update_airtable(top_market_cap, "시가총액 상위")
-
-    print("\n모든 데이터 처리 완료!")
+    # 2. 시가총액 데이터 가져오기
+    market_cap_leaders = get_market_cap_data(companies)
+    if not market_cap_leaders:
+        print("시가총액 데이터 조회 실패")
+        return
+    print(f"시가총액 상위 {len(market_cap_leaders)}개 기업 선정 완료")
+    
+    # 3. 현재 시세 데이터 가져오기
+    quotes = get_current_quotes(market_cap_leaders)
+    if not quotes:
+        print("시세 데이터 조회 실패")
+        return
+    print("현재 시세 데이터 조회 완료")
+    
+    # 4. Airtable 업데이트
+    print("\nAirtable 업데이트 시작...")
+    update_airtable(market_cap_leaders, quotes)
+    
+    print("\n모든 작업 완료!")
 
 if __name__ == "__main__":
     main()
