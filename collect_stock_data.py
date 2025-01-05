@@ -42,16 +42,22 @@ def get_all_stocks():
 
 def calculate_top_market_cap(stocks):
     """시가총액 상위 20개 계산"""
+    stocks_with_details = []
+    
     for stock in stocks:
         ticker = stock.get('ticker', '')
-
-        # 종목 상세정보 가져오기
         details = get_stock_details(ticker)
-        market_cap = float(details.get('market_cap', 0)) if details else 0
-        stock['market_cap'] = market_cap
+        
+        if details and details.get('market_cap'):
+            stock['market_cap'] = float(details.get('market_cap', 0))
+            stock['company_name'] = details.get('name', 'Unknown')
+            stock['primary_exchange'] = details.get('primary_exchange', '')
+            stocks_with_details.append(stock)
+        
+        time.sleep(0.2)  # API 속도 제한 준수
 
-    # 시가총액을 기준으로 상위 20개 선택
-    return sorted(stocks, key=lambda x: x.get('market_cap', 0), reverse=True)[:20]
+    # 시가총액 기준으로 상위 20개 선택
+    return sorted(stocks_with_details, key=lambda x: x.get('market_cap', 0), reverse=True)[:20]
 
 def get_stock_details(ticker):
     """종목 상세정보 조회"""
@@ -78,19 +84,15 @@ def update_airtable(stock_data, category):
             day_data = stock.get('day', {})
             ticker = stock.get('ticker', '')
 
-            # 종목 상세 정보 추가
-            details = get_stock_details(ticker)
-            stock_name = details.get('name', 'Unknown') if details else 'Unknown'
-            primary_exchange = details.get('primary_exchange', '') if details else 'Unknown'
-
             record = {
                 '티커': ticker,
-                '종목명': stock_name,
+                '종목명': stock.get('company_name', 'Unknown'),
                 '현재가': float(day_data.get('c', 0)),
                 '등락률': float(stock.get('todaysChangePerc', 0)),
                 '거래량': int(day_data.get('v', 0)),
-                '시가총액': stock.get('market_cap', 0),
-                '거래소 정보': convert_exchange_code(primary_exchange),
+                '거래대금': float(day_data.get('c', 0)) * float(day_data.get('v', 0)),
+                '시가총액': float(stock.get('market_cap', 0)),
+                '거래소 정보': convert_exchange_code(stock.get('primary_exchange', '')),
                 '업데이트 시간': current_date,
                 '분류': category
             }
