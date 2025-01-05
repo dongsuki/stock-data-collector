@@ -24,9 +24,9 @@ jobs:
         pip install requests
         pip install airtable-python-wrapper
     
-    - name: Run collect_stock_data.py
+    - name: Run Market Cap Leaders Collection (FMP)
       env:
         FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./collect_stock_data.py
+      run: python ./collect_market_cap.py
