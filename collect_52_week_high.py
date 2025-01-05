@@ -12,30 +12,50 @@ TABLE_NAME = "미국주식 데이터"
 
 def get_52week_high_stocks():
     """52주 신고가 근처에 있는 주식 데이터 가져오기"""
-    url = "https://financialmodelingprep.com/api/v3/stock-screener"
+    # 먼저 모든 주식 정보를 가져옵니다
+    url = "https://financialmodelingprep.com/api/v3/stock/list"
     
     params = {
-        'apikey': FMP_API_KEY,
-        'volumeMoreThan': 1000000,  # 거래량 100만주 이상
-        'priceMoreThan': 5,  # 주가 5달러 이상
-        'marketCapMoreThan': 500000000,  # 시가총액 5억달러 이상
-        'exchange': 'NYSE,NASDAQ',  # NYSE와 NASDAQ 상장 종목만
-        'limit': 1000  # 충분한 데이터를 가져오기 위해 큰 값 설정
+        'apikey': FMP_API_KEY
     }
     
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
-            stocks = response.json()
-            # 52주 고가와 현재가 비교하여 필터링 및 정렬
+            all_stocks = response.json()
+            
+            # 조건에 맞는 주식만 필터링
             filtered_stocks = []
-            for stock in stocks:
-                if stock['price'] > 0 and stock['yearHigh'] > 0:
-                    # 현재가가 52주 고가의 95% 이상인 종목만 선택
-                    if stock['price'] >= stock['yearHigh'] * 0.95:
-                        # 52주 고가 대비 현재가 비율 계산
-                        stock['highRatio'] = (stock['price'] / stock['yearHigh']) * 100
-                        filtered_stocks.append(stock)
+            
+            for stock in all_stocks:
+                if not stock.get('symbol'):  # symbol이 없는 경우 스킵
+                    continue
+                    
+                # 각 주식의 상세 정보를 가져옵니다
+                quote_url = f"https://financialmodelingprep.com/api/v3/quote/{stock['symbol']}"
+                quote_response = requests.get(quote_url, params=params)
+                
+                if quote_response.status_code == 200:
+                    quote_data = quote_response.json()
+                    if not quote_data:  # 데이터가 비어있으면 스킵
+                        continue
+                    
+                    quote = quote_data[0]
+                    
+                    # 필터링 조건 적용
+                    if (quote.get('price', 0) >= 5 and
+                        quote.get('volume', 0) >= 1000000 and
+                        quote.get('marketCap', 0) >= 500000000 and
+                        quote.get('yearHigh', 0) > 0):
+                        
+                        # 현재가가 52주 고가의 95% 이상인 경우
+                        if quote['price'] >= quote['yearHigh'] * 0.95:
+                            # 52주 고가 대비 현재가 비율 계산
+                            quote['highRatio'] = (quote['price'] / quote['yearHigh']) * 100
+                            filtered_stocks.append(quote)
+                            print(f"조건 충족: {quote['symbol']} - 현재가: ${quote['price']}, 52주 고가: ${quote['yearHigh']}")
+                
+                time.sleep(0.2)  # API 속도 제한 준수
             
             # 52주 고가 비율로 정렬하고 상위 20개만 선택
             sorted_stocks = sorted(filtered_stocks, 
@@ -56,7 +76,7 @@ def update_airtable(stock_data):
         try:
             record = {
                 '티커': stock.get('symbol', ''),
-                '종목명': stock.get('companyName', ''),
+                '종목명': stock.get('name', ''),
                 '현재가': float(stock.get('price', 0)),
                 '52주 고가': float(stock.get('yearHigh', 0)),
                 '52주 고가비율': round(stock.get('highRatio', 0), 2),
