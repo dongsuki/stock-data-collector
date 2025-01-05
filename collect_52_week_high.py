@@ -22,7 +22,7 @@ def get_session():
 def get_52week_high_stocks():
     """52주 신고가 근처에 있는 주식 데이터 가져오기"""
     # NYSE, NASDAQ 상장 종목 전체 quote 데이터 가져오기
-    url = "https://financialmodelingprep.com/api/v3/quotes/index"
+    url = "https://financialmodelingprep.com/api/v3/stock/list"
     params = {'apikey': FMP_API_KEY}
     
     session = get_session()
@@ -34,20 +34,31 @@ def get_52week_high_stocks():
     stocks = response.json()
     
     # 조건에 맞는 종목 필터링
+    # 종목 리스트를 50개씩 나눠서 quote 데이터 가져오기
     filtered_stocks = []
+    nyse_nasdaq_stocks = [stock for stock in stocks if stock.get('exchange') in ['NYSE', 'NASDAQ']]
     
-    for stock in stocks:
-        if (stock.get('exchange') in ['NYSE', 'NASDAQ'] and  # NYSE, NASDAQ 종목만
-            stock.get('price', 0) >= 5 and                   # 주가 $5 이상
-            stock.get('volume', 0) >= 1000000 and           # 거래량 100만주 이상
-            stock.get('marketCap', 0) >= 500000000 and      # 시가총액 5억달러 이상
-            stock.get('yearHigh', 0) > 0):                  # 52주 고가 존재
-            
-            high_ratio = (stock['price'] / stock['yearHigh']) * 100
-            if high_ratio >= 95:  # 현재가가 52주 고가의 95% 이상
-                stock['highRatio'] = high_ratio
-                filtered_stocks.append(stock)
-                print(f"조건 충족: {stock['symbol']} - 현재가: ${stock['price']} - 52주 신고가: ${stock['yearHigh']} - 비율: {high_ratio:.2f}%")
+    for i in range(0, len(nyse_nasdaq_stocks), 50):
+        chunk = nyse_nasdaq_stocks[i:i+50]
+        symbols = ','.join(stock['symbol'] for stock in chunk)
+        
+        # Quote 데이터 가져오기
+        quote_url = f"https://financialmodelingprep.com/api/v3/quote/{symbols}"
+        quote_response = session.get(quote_url, params=params)
+        
+        if quote_response.status_code == 200:
+            quotes = quote_response.json()
+            for quote in quotes:
+                if (quote.get('price', 0) >= 5 and
+                    quote.get('volume', 0) >= 1000000 and
+                    quote.get('marketCap', 0) >= 500000000 and
+                    quote.get('yearHigh', 0) > 0):
+                    
+                    high_ratio = (quote['price'] / quote['yearHigh']) * 100
+                    if high_ratio >= 95:
+                        quote['highRatio'] = high_ratio
+                        filtered_stocks.append(quote)
+                        print(f"조건 충족: {quote['symbol']} - 현재가: ${quote['price']} - 52주 신고가: ${quote['yearHigh']} - 비율: {high_ratio:.2f}%")
     
     return sorted(filtered_stocks, key=lambda x: x['highRatio'], reverse=True)[:20]
 
