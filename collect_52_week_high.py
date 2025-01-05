@@ -7,7 +7,7 @@ import time
 FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
 AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
-TABLE_NAME = "52주 신고가 데이터"
+TABLE_NAME = "미국주식 데이터"
 
 # 종목 데이터를 가져올 때 사용할 분할 구간
 SYMBOL_RANGES = [('A', 'F'), ('G', 'L'), ('M', 'R'), ('S', 'Z')]
