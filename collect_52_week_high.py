@@ -37,11 +37,12 @@ def get_bulk_quotes(session, symbols):
 
 def get_52week_high_stocks():
     """52주 신고가 근처에 있는 주식 데이터 가져오기"""
-    url = "https://financialmodelingprep.com/api/v3/stock-screener"
+    url = "https://financialmodelingprep.com/api/v3/available-traded/list"
     params = {
         'marketCapMoreThan': 500000000,
         'priceMoreThan': 5,
         'volumeMoreThan': 1000000,
+        'exchange': 'NYSE,NASDAQ',  # NYSE와 NASDAQ만 포함
         'apikey': FMP_API_KEY
     }
     
@@ -78,8 +79,9 @@ def get_52week_high_stocks():
                 continue
                 
             high_ratio = (stock['price'] / stock['yearHigh']) * 100
-            if stock['price'] >= stock['yearHigh'] * 0.95:
-                print(f"조건 충족: {symbol} - 현재가: {stock['price']} - 52주 신고가: {stock['yearHigh']} - 비율: {high_ratio:.2f}%")
+            # 95% 이상이면 모두 포함 (100% 이상도 포함)
+            if high_ratio >= 95:
+                print(f"조건 충족: {symbol} - 현재가: ${stock['price']} - 52주 신고가: ${stock['yearHigh']} - 비율: {high_ratio:.2f}%")
                 stock['highRatio'] = high_ratio
                 filtered_stocks.append(stock)
     
