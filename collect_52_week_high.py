@@ -35,12 +35,17 @@ def get_52week_high_stocks():
         raise Exception(f"API 호출 실패: {response.status_code}")
 
     stocks = response.json()
+    print(f"응답된 주식 데이터 개수: {len(stocks)}")
+    if stocks:
+        print(f"첫 번째 주식 데이터 샘플: {stocks[0]}")
 
     filtered_stocks = []
     for stock in stocks:
         if stock.get('price') and stock.get('yearHigh'):
             high_ratio = (stock['price'] / stock['yearHigh']) * 100
+            print(f"종목: {stock['symbol']}, 현재가: {stock['price']}, 52주 신고가: {stock['yearHigh']}, 비율: {high_ratio:.2f}%")
             if stock['price'] >= stock['yearHigh'] * 0.95:
+                print(f"조건 충족: {stock['symbol']}")
                 stock['highRatio'] = high_ratio
                 filtered_stocks.append(stock)
 
