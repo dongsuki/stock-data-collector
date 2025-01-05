@@ -1,6 +1,6 @@
 import requests
 
-POLYGON_API_KEY = "your_polygon_api_key"
+POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
 
 def check_52_week_high_availability(stocks):
     """52주 신고가 값이 누락된 종목 필터링"""
