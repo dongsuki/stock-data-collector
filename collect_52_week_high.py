@@ -81,11 +81,15 @@ def get_52week_high_stocks():
             print(f"필수 필드 누락: {stock.get('symbol')} - 응답 데이터: {stock}")
             continue
         high_ratio = (stock['price'] / stock['yearHigh']) * 100
-        if stock['price'] < stock['yearHigh'] * 0.95:
-            print(f"조건 미충족: {stock.get('symbol')} - 현재가: {stock['price']} - 52주 신고가: {stock['yearHigh']} - 비율: {high_ratio:.2f}%")
-            continue
         stock['highRatio'] = high_ratio
-        filtered_stocks.append(stock)
+
+        # 100% 이상인 종목 명시적 출력
+        if high_ratio >= 100:
+            print(f"신고가 비율 100% 이상: {stock['symbol']} - 현재가: {stock['price']} - 52주 신고가: {stock['yearHigh']} - 비율: {high_ratio:.2f}%")
+
+        # 95% 이상 포함
+        if high_ratio >= 95:
+            filtered_stocks.append(stock)
 
     return sorted(filtered_stocks, key=lambda x: x['highRatio'], reverse=True)[:20]
 
@@ -117,10 +121,6 @@ def update_airtable(stock_data):
         print(f"{len(records)}개의 데이터가 Airtable에 추가되었습니다.")
     except Exception as e:
         print(f"Airtable 업로드 중 오류 발생: {str(e)}")
-
-    # 추가 디버깅 출력
-    for record in records:
-        print(f"업로드 시도 데이터: {record}")
 
 def main():
     print("데이터 수집 시작...")
