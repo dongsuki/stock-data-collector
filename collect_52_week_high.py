@@ -113,10 +113,14 @@ def update_airtable(stock_data):
         records.append(record)
 
     try:
-        airtable.batch_insert(records)
+        response = airtable.batch_insert(records)
         print(f"{len(records)}개의 데이터가 Airtable에 추가되었습니다.")
     except Exception as e:
         print(f"Airtable 업로드 중 오류 발생: {str(e)}")
+
+    # 추가 디버깅 출력
+    for record in records:
+        print(f"업로드 시도 데이터: {record}")
 
 def main():
     print("데이터 수집 시작...")
