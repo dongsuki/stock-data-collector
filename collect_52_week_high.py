@@ -19,70 +19,93 @@ def get_session():
     session.mount("https://", adapter)
     return session
 
-def get_52week_high_stocks():
-    """52주 신고가 근처에 있는 주식 데이터 가져오기"""
-    # NYSE, NASDAQ 상장 종목 전체 quote 데이터 가져오기
-    url = "https://financialmodelingprep.com/api/v3/stock/list"
+def get_batch_stock_details(symbols):
+    """Batch로 여러 종목의 세부 정보를 가져오기"""
+    url = f"https://financialmodelingprep.com/api/v3/quote/{','.join(symbols)}"
     params = {'apikey': FMP_API_KEY}
-    
+
     session = get_session()
     response = session.get(url, params=params)
-    
+    if response.status_code != 200:
+        print(f"Batch 요청 실패: {response.status_code}")
+        return []
+
+    return response.json()
+
+def get_52week_high_stocks():
+    """52주 신고가 근처에 있는 주식 데이터 가져오기"""
+    url = "https://financialmodelingprep.com/api/v3/stock-screener"
+    params = {
+        'marketCapMoreThan': 500000000,
+        'priceMoreThan': 5,
+        'volumeMoreThan': 1000000,
+        'apikey': FMP_API_KEY
+    }
+
+    session = get_session()
+    response = session.get(url, params=params)
     if response.status_code != 200:
         raise Exception(f"API 호출 실패: {response.status_code}")
-    
+
     stocks = response.json()
-    
-    # 조건에 맞는 종목 필터링
-    # 종목 리스트를 50개씩 나눠서 quote 데이터 가져오기
+    print(f"응답된 주식 데이터 개수: {len(stocks)}")
+    if stocks:
+        print(f"첫 번째 주식 데이터 샘플: {stocks[0]}")
+
+    # 거래소 필터링
+    filtered_by_exchange = [
+        stock for stock in stocks 
+        if stock.get('exchange') in ['NYSE', 'NASDAQ']
+    ]
+    print(f"필터링된 거래소 종목 수: {len(filtered_by_exchange)}")
+
+    # 심볼 목록 생성
+    symbols = [stock['symbol'] for stock in filtered_by_exchange if stock.get('symbol')]
+    print(f"심볼 수집 완료: {len(symbols)}개")
+
+    # Batch 요청으로 상세 데이터 가져오기
+    batch_size = 100
+    detailed_stocks = []
+
+    for i in range(0, len(symbols), batch_size):
+        batch_symbols = symbols[i:i + batch_size]
+        details = get_batch_stock_details(batch_symbols)
+        detailed_stocks.extend(details)
+
+    # 필터링
     filtered_stocks = []
-    nyse_nasdaq_stocks = [stock for stock in stocks if stock.get('exchange') in ['NYSE', 'NASDAQ']]
-    
-    for i in range(0, len(nyse_nasdaq_stocks), 50):
-        chunk = nyse_nasdaq_stocks[i:i+50]
-        symbols = ','.join(stock['symbol'] for stock in chunk)
-        
-        # Quote 데이터 가져오기
-        quote_url = f"https://financialmodelingprep.com/api/v3/quote/{symbols}"
-        quote_response = session.get(quote_url, params=params)
-        
-        if quote_response.status_code == 200:
-            quotes = quote_response.json()
-            for quote in quotes:
-                if (quote.get('price', 0) >= 5 and
-                    quote.get('volume', 0) >= 1000000 and
-                    quote.get('marketCap', 0) >= 500000000 and
-                    quote.get('yearHigh', 0) > 0):
-                    
-                    high_ratio = (quote['price'] / quote['yearHigh']) * 100
-                    if high_ratio >= 95:
-                        quote['highRatio'] = high_ratio
-                        filtered_stocks.append(quote)
-                        print(f"조건 충족: {quote['symbol']} - 현재가: ${quote['price']} - 52주 신고가: ${quote['yearHigh']} - 비율: {high_ratio:.2f}%")
-    
+    for stock in detailed_stocks:
+        if stock.get('price') and stock.get('yearHigh'):
+            high_ratio = (stock['price'] / stock['yearHigh']) * 100
+            if stock['price'] >= stock['yearHigh'] * 0.95:
+                stock['highRatio'] = high_ratio
+                filtered_stocks.append(stock)
+
     return sorted(filtered_stocks, key=lambda x: x['highRatio'], reverse=True)[:20]
 
 def update_airtable(stock_data):
     """Airtable에 데이터 추가"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
-    
+
     records = []
     for stock in stock_data:
         record = {
-            '티커': stock.get('symbol', ''),
-            '종목명': stock.get('name', ''),
-            '현재가': float(stock.get('price', 0)),
-            '52주 신고가': float(stock.get('yearHigh', 0)),
-            '신고가 비율(%)': round(stock.get('highRatio', 0), 2),
-            '거래량': int(stock.get('volume', 0)),
-            '시가총액': float(stock.get('marketCap', 0)),
-            '업데이트 시간': current_date,
-            '분류': '52주신고가상위',
-            '거래소 정보': stock.get('exchange', '')
+            'fields': {
+                '티커': stock.get('symbol', ''),
+                '종목명': stock.get('name', ''),
+                '현재가': float(stock.get('price', 0)),
+                '52주 신고가': float(stock.get('yearHigh', 0)),
+                '신고가 비율(%)': round(stock.get('highRatio', 0), 2),
+                '거래량': int(stock.get('volume', 0)),
+                '시가총액': float(stock.get('marketCap', 0)),
+                '업데이트 시간': current_date,
+                '분류': '52주신고가상위',
+                '거래소 정보': stock.get('exchange', '')
+            }
         }
         records.append(record)
-    
+
     try:
         airtable.batch_insert(records)
         print(f"{len(records)}개의 데이터가 Airtable에 추가되었습니다.")
@@ -96,17 +119,17 @@ def main():
     print("- 거래량 >= 1,000,000주")
     print("- 시가총액 >= $500,000,000")
     print("- 현재가가 52주 신고가의 95% 이상")
-    
+
     try:
         stocks = get_52week_high_stocks()
         if not stocks:
             print("조건에 맞는 종목이 없습니다.")
             return
-            
+
         print(f"\n조건을 만족하는 종목 수: {len(stocks)}개")
         update_airtable(stocks)
         print("\n모든 데이터 처리 완료!")
-        
+
     except Exception as e:
         print(f"프로그램 실행 중 오류 발생: {str(e)}")
 
