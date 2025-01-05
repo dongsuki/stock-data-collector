@@ -1,63 +1,17 @@
 import requests
-from datetime import datetime
-from airtable import Airtable
-import time
 
-# 환경 변수 설정
-POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
-AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
-AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
-TABLE_NAME = "미국주식 데이터"
+POLYGON_API_KEY = "your_polygon_api_key"
 
-def convert_exchange_code(mic):
-    """거래소 코드를 읽기 쉬운 형태로 변환"""
-    exchange_map = {
-        'XNAS': 'NASDAQ',
-        'XNYS': 'NYSE',
-        'XASE': 'AMEX'
-    }
-    return exchange_map.get(mic, mic)
-
-def filter_100_percent_high(stocks):
-    """현재 가격이 52주 최고가를 초과한 종목 필터링"""
-    filtered = []
-    for stock in stocks:
-        day_data = stock.get('day', {})
-        current_price = float(day_data.get('c', 0))  # 현재 가격
-        high_52_week = float(stock.get('52w_high', 0))  # 52주 최고가
-
-        # 조건: 현재 가격이 52주 최고가를 초과한 경우
-        if current_price > high_52_week > 0:
-            stock['52_week_high'] = high_52_week
-            filtered.append(stock)
-
-    return filtered
-
-def update_airtable(stock_data, category):
-    """Airtable에 데이터 추가"""
-    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    current_date = datetime.now().strftime("%Y-%m-%d")
+def check_52_week_high_availability(stocks):
+    """52주 신고가 값이 누락된 종목 필터링"""
+    missing_high_stocks = [stock for stock in stocks if stock.get('52w_high', 0.0) == 0.0]
+    print(f"총 종목 수: {len(stocks)}개")
+    print(f"누락된 52주 신고가 종목 수: {len(missing_high_stocks)}개")
     
-    for stock in stock_data:
-        try:
-            day_data = stock.get('day', {})
-            record = {
-                '티커': stock.get('ticker', ''),
-                '종목명': stock.get('name', ''),
-                '현재가': float(day_data.get('c', 0)),
-                '52주 신고가': float(stock.get('52_week_high', 0)),
-                '거래량': int(day_data.get('v', 0)),
-                '업데이트 시간': current_date,
-                '분류': category
-            }
-            if stock.get('primary_exchange'):
-                record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
-
-            airtable.insert(record)
-            print(f"새 데이터 추가 완료: {record['티커']} ({category})")
-            time.sleep(0.1)  # API 호출 제한 방지
-        except Exception as e:
-            print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
+    # 누락된 종목 일부 출력
+    for stock in missing_high_stocks[:10]:  # 최대 10개만 출력
+        print(f"누락된 종목: {stock['ticker']}, 현재 가격: {stock.get('day', {}).get('c', 'N/A')}")
+    return missing_high_stocks
 
 def main():
     print("데이터 수집 시작...")
@@ -68,20 +22,13 @@ def main():
 
     try:
         response = requests.get(url, params=params)
-        response.raise_for_status()  # HTTP 에러 발생 시 예외 발생
+        response.raise_for_status()  # HTTP 에러 발생 시 예외
         all_stocks = response.json().get('tickers', [])
 
         print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
         
-        # 100% 이상 종목 필터링
-        filtered_stocks = filter_100_percent_high(all_stocks)
-        print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
-
-        # Airtable 업로드
-        if filtered_stocks:
-            update_airtable(filtered_stocks, "52주 최고가 초과")
-        
-        print("\n모든 데이터 처리 완료!")
+        # 누락 여부 확인
+        missing_high_stocks = check_52_week_high_availability(all_stocks)
 
     except Exception as e:
         print(f"데이터 수집 중 에러 발생: {e}")
