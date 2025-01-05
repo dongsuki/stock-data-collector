@@ -4,6 +4,7 @@ from datetime import datetime
 from airtable import Airtable
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+import time
 
 # API 설정
 FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
@@ -18,6 +19,24 @@ def get_session():
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("https://", adapter)
     return session
+
+def get_stock_details(symbol):
+    """각 종목의 상세 정보를 가져오기"""
+    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}"
+    params = {'apikey': FMP_API_KEY}
+
+    session = get_session()
+    response = session.get(url, params=params)
+    if response.status_code != 200:
+        print(f"{symbol}의 세부 정보 호출 실패: {response.status_code}")
+        return None
+
+    data = response.json()
+    if not data:
+        print(f"{symbol}의 데이터가 비어 있습니다.")
+        return None
+
+    return data[0]
 
 def get_52week_high_stocks():
     """52주 신고가 근처에 있는 주식 데이터 가져오기"""
@@ -41,18 +60,27 @@ def get_52week_high_stocks():
 
     filtered_stocks = []
     for stock in stocks:
-        # 디버깅 정보 출력
-        print(f"검사 중: {stock.get('symbol', 'N/A')} - 현재가: {stock.get('price')} - 52주 신고가: {stock.get('yearHigh')} - 거래량: {stock.get('volume')} - 시가총액: {stock.get('marketCap')}")
+        print(f"기본 데이터 검사 중: {stock.get('symbol', 'N/A')} - 현재가: {stock.get('price')} - 거래량: {stock.get('volume')} - 시가총액: {stock.get('marketCap')}")
 
-        if not stock.get('price') or not stock.get('yearHigh'):
-            print(f"필드 누락: {stock.get('symbol', 'N/A')}")
+        if not stock.get('symbol'):
+            print("심볼이 없는 데이터 무시")
             continue
 
+        # 상세 정보 호출
+        details = get_stock_details(stock['symbol'])
+        if not details or not details.get('yearHigh'):
+            print(f"{stock['symbol']}의 yearHigh 데이터 없음")
+            continue
+
+        stock['yearHigh'] = details['yearHigh']
         high_ratio = (stock['price'] / stock['yearHigh']) * 100
+
         if stock['price'] >= stock['yearHigh'] * 0.95:
             print(f"조건 충족: {stock['symbol']} - 현재가: {stock['price']} - 52주 신고가: {stock['yearHigh']} - 비율: {high_ratio:.2f}%")
             stock['highRatio'] = high_ratio
             filtered_stocks.append(stock)
+
+        time.sleep(0.2)  # API 호출 간격 조정
 
     return sorted(filtered_stocks, key=lambda x: x['highRatio'], reverse=True)[:20]
 
