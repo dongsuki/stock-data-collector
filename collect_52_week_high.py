@@ -42,8 +42,8 @@ def get_52_week_high_companies(all_data):
     """52주 신고가 상위 기업 데이터 필터링"""
     # 52주 신고가 비율 계산
     for company in all_data:
-        price = float(company.get('price', 0))
-        year_high = float(company.get('yearHigh', 1))
+        price = float(company.get('price', 0) or 0)
+        year_high = float(company.get('yearHigh', 1) or 1)  # 기본값 1로 설정 (0으로 나누기 방지)
         company['high_ratio'] = (price / year_high) * 100 if year_high > 0 else 0
 
     # 52주 신고가 비율 기준 정렬 후 상위 20개 선택
@@ -60,12 +60,12 @@ def update_airtable(companies):
             record = {
                 '티커': company['symbol'],
                 '종목명': company.get('companyName', ''),
-                '현재가': float(company.get('price', 0)),
-                '52주 신고가': float(company.get('yearHigh', 0)),
-                '신고가 비율(%)': float(company.get('high_ratio', 0)),
-                '등락률': float(company.get('changesPercentage', 0)),
-                '거래량': int(company.get('volume', 0)),
-                '시가총액': float(company.get('marketCap', 0)),
+                '현재가': float(company.get('price', 0) or 0),
+                '52주 신고가': float(company.get('yearHigh', 0) or 0),
+                '신고가 비율(%)': float(company.get('high_ratio', 0) or 0),
+                '등락률': float(company.get('changesPercentage', 0) or 0),
+                '거래량': int(company.get('volume', 0) or 0),
+                '시가총액': float(company.get('marketCap', 0) or 0),
                 '거래소 정보': company.get('exchange', ''),
                 '업데이트 시간': current_date,
                 '분류': "52주 신고가 상위"
