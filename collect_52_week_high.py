@@ -4,9 +4,10 @@ from datetime import datetime
 from airtable import Airtable
 import time
 
-POLYGON_API_KEY = "your_polygon_api_key"
-AIRTABLE_API_KEY = "your_airtable_api_key"
-AIRTABLE_BASE_ID = "your_airtable_base_id"
+# API 키와 Airtable 테이블 정보
+POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"  # Polygon API Key
+AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
+AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
 def convert_exchange_code(mic):
