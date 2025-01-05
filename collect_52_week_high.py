@@ -5,9 +5,9 @@ from airtable import Airtable
 import time
 
 # 환경 변수 설정
-POLYGON_API_KEY = "your_polygon_api_key"
-AIRTABLE_API_KEY = "your_airtable_api_key"
-AIRTABLE_BASE_ID = "your_airtable_base_id"
+POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
+AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
+AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
 def convert_exchange_code(mic):
