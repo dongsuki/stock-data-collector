@@ -1,7 +1,6 @@
 import os
 import requests
 from datetime import datetime
-import pytz
 from airtable import Airtable
 import time
 
@@ -86,10 +85,7 @@ def filter_stocks(stocks):
 def update_airtable(stock_data, category):
     """Airtable에 데이터 추가"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    
-    # 미국 동부 시간대(ET) 설정
-    eastern = pytz.timezone('US/Eastern')
-    current_date = datetime.now(eastern).strftime("%Y-%m-%d")
+    current_date = datetime.now().strftime("%Y-%m-%d")
     
     for stock in stock_data:
         try:
