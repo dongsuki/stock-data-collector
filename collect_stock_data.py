@@ -1,22 +1,167 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from airtable import Airtable
-import time
+from typing import Dict, List, Optional
 
 POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
 AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
-def convert_exchange_code(mic):
-    """거래소 코드를 읽기 쉬운 형태로 변환"""
-    exchange_map = {
-        'XNAS': 'NASDAQ',
-        'XNYS': 'NYSE',
-        'XASE': 'AMEX'
+def filter_recent_financials(financials: List, max_quarters=12) -> List:
+    """최근 max_quarters 개의 분기 데이터를 필터링"""
+    if not financials:
+        return []
+    return sorted(financials, key=lambda x: x.get('period_of_report_date', ''), reverse=True)[:max_quarters]
+
+def get_financials(ticker: str) -> List:
+    """재무데이터 조회 및 최근 12분기 필터링"""
+    url = f"https://api.polygon.io/vX/reference/financials"
+    params = {
+        'apiKey': POLYGON_API_KEY,
+        'ticker': ticker,
+        'limit': 12,
+        'timeframe': 'quarterly',
+        'order': 'desc',
+        'sort': 'period_of_report_date'
     }
-    return exchange_map.get(mic, mic)
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            financials = response.json().get('results', [])
+            return filter_recent_financials(financials)
+        return []
+    except Exception as e:
+        print(f"재무데이터 조회 중 에러 발생 ({ticker}): {str(e)}")
+        return []
+
+def safe_growth_rate(current: float, previous: float) -> Optional[float]:
+    """안전한 성장률 계산"""
+    if current is not None and previous is not None and previous != 0:
+        return ((current - previous) / abs(previous)) * 100
+    return None
+
+def calculate_growth_rates(financials: List) -> Dict:
+    """성장률 계산"""
+    growth_rates = {
+        'eps_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
+        'operating_income_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
+        'revenue_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None}
+    }
+    
+    if not financials:
+        return growth_rates
+        
+    try:
+        # 분기 성장률 계산
+        for i in range(min(len(financials)-1, 3)):
+            current = financials[i].get('financials', {})
+            previous = financials[i+1].get('financials', {})
+            
+            current_eps = current.get('income_statement', {}).get('diluted_earnings_per_share', {}).get('value')
+            previous_eps = previous.get('income_statement', {}).get('diluted_earnings_per_share', {}).get('value')
+            
+            current_op = current.get('income_statement', {}).get('operating_income_loss', {}).get('value')
+            previous_op = previous.get('income_statement', {}).get('operating_income_loss', {}).get('value')
+            
+            current_rev = current.get('income_statement', {}).get('revenues', {}).get('value')
+            previous_rev = previous.get('income_statement', {}).get('revenues', {}).get('value')
+            
+            quarter_key = f'q{i+1}'
+            growth_rates['eps_growth'][quarter_key] = safe_growth_rate(current_eps, previous_eps)
+            growth_rates['operating_income_growth'][quarter_key] = safe_growth_rate(current_op, previous_op)
+            growth_rates['revenue_growth'][quarter_key] = safe_growth_rate(current_rev, previous_rev)
+        
+        # 연간 성장률 계산
+        for year in range(1, 4):
+            if len(financials) >= year * 4:
+                current = financials[0].get('financials', {})
+                previous = financials[year * 4 - 1].get('financials', {})
+                
+                current_eps = current.get('income_statement', {}).get('diluted_earnings_per_share', {}).get('value')
+                previous_eps = previous.get('income_statement', {}).get('diluted_earnings_per_share', {}).get('value')
+                
+                current_op = current.get('income_statement', {}).get('operating_income_loss', {}).get('value')
+                previous_op = previous.get('income_statement', {}).get('operating_income_loss', {}).get('value')
+                
+                current_rev = current.get('income_statement', {}).get('revenues', {}).get('value')
+                previous_rev = previous.get('income_statement', {}).get('revenues', {}).get('value')
+                
+                year_key = f'y{year}'
+                growth_rates['eps_growth'][year_key] = safe_growth_rate(current_eps, previous_eps)
+                growth_rates['operating_income_growth'][year_key] = safe_growth_rate(current_op, previous_op)
+                growth_rates['revenue_growth'][year_key] = safe_growth_rate(current_rev, previous_rev)
+                    
+    except Exception as e:
+        print(f"성장률 계산 중 에러 발생: {str(e)}")
+    
+    return growth_rates
+
+def update_airtable(stock_data: List, category: str):
+    """Airtable에 배치로 데이터 추가"""
+    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    records = []
+    
+    for stock in stock_data:
+        try:
+            financials = get_financials(stock['ticker'])
+            growth_rates = calculate_growth_rates(financials)
+            
+            record = {
+                'fields': {
+                    '티커': stock.get('ticker', ''),
+                    '종목명': stock.get('name', ''),
+                    '현재가': float(stock.get('day', {}).get('c', 0)),
+                    '등락률': float(stock.get('todaysChangePerc', 0)),
+                    '거래량': int(stock.get('day', {}).get('v', 0)),
+                    '시가총액': float(stock.get('market_cap', 0)),
+                    '업데이트 시간': current_date,
+                    '분류': category,
+                    # EPS 성장률
+                    'EPS성장률_최신분기': growth_rates['eps_growth']['q1'],
+                    'EPS성장률_전분기': growth_rates['eps_growth']['q2'],
+                    'EPS성장률_전전분기': growth_rates['eps_growth']['q3'],
+                    'EPS성장률_1년': growth_rates['eps_growth']['y1'],
+                    'EPS성장률_2년': growth_rates['eps_growth']['y2'],
+                    'EPS성장률_3년': growth_rates['eps_growth']['y3'],
+                    # 영업이익 성장률
+                    '영업이익성장률_최신분기': growth_rates['operating_income_growth']['q1'],
+                    '영업이익성장률_전분기': growth_rates['operating_income_growth']['q2'],
+                    '영업이익성장률_전전분기': growth_rates['operating_income_growth']['q3'],
+                    '영업이익성장률_1년': growth_rates['operating_income_growth']['y1'],
+                    '영업이익성장률_2년': growth_rates['operating_income_growth']['y2'],
+                    '영업이익성장률_3년': growth_rates['operating_income_growth']['y3'],
+                    # 매출액 성장률
+                    '매출액성장률_최신분기': growth_rates['revenue_growth']['q1'],
+                    '매출액성장률_전분기': growth_rates['revenue_growth']['q2'],
+                    '매출액성장률_전전분기': growth_rates['revenue_growth']['q3'],
+                    '매출액성장률_1년': growth_rates['revenue_growth']['y1'],
+                    '매출액성장률_2년': growth_rates['revenue_growth']['y2'],
+                    '매출액성장률_3년': growth_rates['revenue_growth']['y3'],
+                }
+            }
+            
+            if stock.get('primary_exchange'):
+                record['fields']['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
+            
+            records.append(record)
+            
+            # 10개 단위로 배치 업로드
+            if len(records) >= 10:
+                airtable.batch_insert(records, typecast=True)
+                print(f"배치 업로드 완료: {[r['fields']['티커'] for r in records]}")
+                records = []
+                
+        except Exception as e:
+            print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
+    
+    # 남은 데이터 업로드
+    if records:
+        airtable.batch_insert(records, typecast=True)
+        print(f"최종 배치 업로드 완료: {[r['fields']['티커'] for r in records]}")
 
 def get_all_stocks():
     """모든 주식 데이터 가져오기"""
@@ -30,7 +175,6 @@ def get_all_stocks():
         response = requests.get(url, params=params)
         if response.status_code == 200:
             data = response.json()
-            print(f"전체 데이터 샘플:", data['tickers'][0] if data.get('tickers') else 'No data')
             return data.get('tickers', [])
         else:
             print(f"API 요청 실패: {response.status_code}")
@@ -39,20 +183,7 @@ def get_all_stocks():
         print(f"데이터 수집 중 에러 발생: {str(e)}")
         return []
 
-def get_stock_details(ticker):
-    """종목 상세정보 조회"""
-    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
-    params = {'apiKey': POLYGON_API_KEY}
-    
-    try:
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            return response.json().get('results', {})
-        return None
-    except:
-        return None
-
-def filter_stocks(stocks):
+def filter_stocks(stocks: List) -> List:
     """주식 데이터 필터링"""
     filtered = []
     total = len(stocks)
@@ -65,10 +196,10 @@ def filter_stocks(stocks):
         volume = int(day_data.get('v', 0))
         change = float(stock.get('todaysChangePerc', 0))
         
-        if i % 10 == 0:
+        if i % 100 == 0:
             print(f"진행 중... {i}/{total}")
         
-        if price >= 5 and volume >= 1000000 and change >= 5:  # 등락률 5% 이상으로 수정
+        if price >= 5 and volume >= 1000000 and change >= 5:
             details = get_stock_details(stock['ticker'])
             if details:
                 market_cap = float(details.get('market_cap', 0))
@@ -78,52 +209,21 @@ def filter_stocks(stocks):
                     stock['primary_exchange'] = details.get('primary_exchange', '')
                     filtered.append(stock)
                     print(f"조건 만족: {stock['ticker']} (시가총액: ${market_cap:,.2f})")
-            time.sleep(0.1)
     
     return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
 
-def update_airtable(stock_data, category):
-    """Airtable에 데이터 추가"""
-    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    
-    for stock in stock_data:
-        try:
-            day_data = stock.get('day', {})
-            
-            record = {
-                '티커': stock.get('ticker', ''),
-                '종목명': stock.get('name', ''),
-                '현재가': float(day_data.get('c', 0)),
-                '등락률': float(stock.get('todaysChangePerc', 0)),
-                '거래량': int(day_data.get('v', 0)),
-                '시가총액': float(stock.get('market_cap', 0)),
-                '업데이트 시간': current_date,
-                '분류': category
-            }
-            
-            if stock.get('primary_exchange'):
-                record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
-            
-            if not record['티커']:
-                print(f"필수 필드 누락: {stock}")
-                continue
-            
-            airtable.insert(record)  # 항상 새 레코드 추가
-            print(f"새 데이터 추가 완료: {record['티커']} ({category})")
-            
-            time.sleep(0.2)
-            
-        except Exception as e:
-            print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
+def convert_exchange_code(mic: str) -> str:
+    """거래소 코드를 읽기 쉬운 형태로 변환"""
+    exchange_map = {
+        'XNAS': 'NASDAQ',
+        'XNYS': 'NYSE',
+        'XASE': 'AMEX'
+    }
+    return exchange_map.get(mic, mic)
 
 def main():
     print("데이터 수집 시작...")
-    print("필터링 조건:")
-    print("- 현재가 >= $5")
-    print("- 거래량 >= 1,000,000주")
-    print("- 등락률 >= 5%")  # 메시지 수정
-    print("- 시가총액 >= $500,000,000")
+    print("필터링 조건: 현재가 >= $5, 거래량 >= 1M주, 등락률 >= 5%, 시가총액 >= $500M")
     
     all_stocks = get_all_stocks()
     if not all_stocks:
@@ -131,7 +231,6 @@ def main():
         return
         
     print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
-    
     filtered_stocks = filter_stocks(all_stocks)
     print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
     
