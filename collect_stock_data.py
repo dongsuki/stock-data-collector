@@ -1,7 +1,8 @@
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from airtable import Airtable
+import time
 from typing import Dict, List, Optional
 
 POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
@@ -10,10 +11,8 @@ AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
 def get_stock_details(ticker: str) -> Dict:
-    """종목 상세정보 조회"""
     url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
     params = {'apiKey': POLYGON_API_KEY}
-    
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
@@ -24,13 +23,11 @@ def get_stock_details(ticker: str) -> Dict:
         return None
 
 def filter_recent_financials(financials: List, max_quarters=12) -> List:
-    """최근 max_quarters 개의 분기 데이터를 필터링"""
     if not financials:
         return []
     return sorted(financials, key=lambda x: x.get('period_of_report_date', ''), reverse=True)[:max_quarters]
 
 def get_financials(ticker: str) -> List:
-    """재무데이터 조회 및 최근 12분기 필터링"""
     url = f"https://api.polygon.io/vX/reference/financials"
     params = {
         'apiKey': POLYGON_API_KEY,
@@ -40,7 +37,6 @@ def get_financials(ticker: str) -> List:
         'order': 'desc',
         'sort': 'period_of_report_date'
     }
-    
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
@@ -52,13 +48,11 @@ def get_financials(ticker: str) -> List:
         return []
 
 def safe_growth_rate(current: float, previous: float) -> Optional[float]:
-    """안전한 성장률 계산"""
     if current is not None and previous is not None and previous != 0:
         return ((current - previous) / abs(previous)) * 100
     return None
 
 def calculate_growth_rates(financials: List) -> Dict:
-    """성장률 계산"""
     growth_rates = {
         'eps_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
         'operating_income_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
@@ -114,10 +108,8 @@ def calculate_growth_rates(financials: List) -> Dict:
     return growth_rates
 
 def update_airtable(stock_data: List, category: str):
-    """Airtable에 배치로 데이터 추가"""
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
-    records = []
     
     for stock in stock_data:
         try:
@@ -125,60 +117,45 @@ def update_airtable(stock_data: List, category: str):
             growth_rates = calculate_growth_rates(financials)
             
             record = {
-                'fields': {
-                    '티커': stock.get('ticker', ''),
-                    '종목명': stock.get('name', ''),
-                    '현재가': float(stock.get('day', {}).get('c', 0)),
-                    '등락률': float(stock.get('todaysChangePerc', 0)),
-                    '거래량': int(stock.get('day', {}).get('v', 0)),
-                    '시가총액': float(stock.get('market_cap', 0)),
-                    '업데이트 시간': current_date,
-                    '분류': category,
-                    # EPS 성장률
-                    'EPS성장률_최신분기': growth_rates['eps_growth']['q1'],
-                    'EPS성장률_전분기': growth_rates['eps_growth']['q2'],
-                    'EPS성장률_전전분기': growth_rates['eps_growth']['q3'],
-                    'EPS성장률_1년': growth_rates['eps_growth']['y1'],
-                    'EPS성장률_2년': growth_rates['eps_growth']['y2'],
-                    'EPS성장률_3년': growth_rates['eps_growth']['y3'],
-                    # 영업이익 성장률
-                    '영업이익성장률_최신분기': growth_rates['operating_income_growth']['q1'],
-                    '영업이익성장률_전분기': growth_rates['operating_income_growth']['q2'],
-                    '영업이익성장률_전전분기': growth_rates['operating_income_growth']['q3'],
-                    '영업이익성장률_1년': growth_rates['operating_income_growth']['y1'],
-                    '영업이익성장률_2년': growth_rates['operating_income_growth']['y2'],
-                    '영업이익성장률_3년': growth_rates['operating_income_growth']['y3'],
-                    # 매출액 성장률
-                    '매출액성장률_최신분기': growth_rates['revenue_growth']['q1'],
-                    '매출액성장률_전분기': growth_rates['revenue_growth']['q2'],
-                    '매출액성장률_전전분기': growth_rates['revenue_growth']['q3'],
-                    '매출액성장률_1년': growth_rates['revenue_growth']['y1'],
-                    '매출액성장률_2년': growth_rates['revenue_growth']['y2'],
-                    '매출액성장률_3년': growth_rates['revenue_growth']['y3'],
-                }
+                '티커': stock.get('ticker', ''),
+                '종목명': stock.get('name', ''),
+                '현재가': float(stock.get('day', {}).get('c', 0)),
+                '등락률': float(stock.get('todaysChangePerc', 0)),
+                '거래량': int(stock.get('day', {}).get('v', 0)),
+                '시가총액': float(stock.get('market_cap', 0)),
+                '업데이트 시간': current_date,
+                '분류': category,
+                'EPS성장률_최신분기': growth_rates['eps_growth']['q1'],
+                'EPS성장률_전분기': growth_rates['eps_growth']['q2'],
+                'EPS성장률_전전분기': growth_rates['eps_growth']['q3'],
+                'EPS성장률_1년': growth_rates['eps_growth']['y1'],
+                'EPS성장률_2년': growth_rates['eps_growth']['y2'],
+                'EPS성장률_3년': growth_rates['eps_growth']['y3'],
+                '영업이익성장률_최신분기': growth_rates['operating_income_growth']['q1'],
+                '영업이익성장률_전분기': growth_rates['operating_income_growth']['q2'],
+                '영업이익성장률_전전분기': growth_rates['operating_income_growth']['q3'],
+                '영업이익성장률_1년': growth_rates['operating_income_growth']['y1'],
+                '영업이익성장률_2년': growth_rates['operating_income_growth']['y2'],
+                '영업이익성장률_3년': growth_rates['operating_income_growth']['y3'],
+                '매출액성장률_최신분기': growth_rates['revenue_growth']['q1'],
+                '매출액성장률_전분기': growth_rates['revenue_growth']['q2'],
+                '매출액성장률_전전분기': growth_rates['revenue_growth']['q3'],
+                '매출액성장률_1년': growth_rates['revenue_growth']['y1'],
+                '매출액성장률_2년': growth_rates['revenue_growth']['y2'],
+                '매출액성장률_3년': growth_rates['revenue_growth']['y3'],
             }
             
             if stock.get('primary_exchange'):
-                record['fields']['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
+                record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
             
-            records.append(record)
-            
-            # 10개 단위로 배치 업로드
-            if len(records) >= 10:
-                airtable.batch_insert(records, typecast=True)
-                print(f"배치 업로드 완료: {[r['fields']['티커'] for r in records]}")
-                records = []
+            airtable.insert(record)
+            print(f"데이터 추가 완료: {record['티커']}")
+            time.sleep(0.2)
                 
         except Exception as e:
             print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
-    
-    # 남은 데이터 업로드
-    if records:
-        airtable.batch_insert(records, typecast=True)
-        print(f"최종 배치 업로드 완료: {[r['fields']['티커'] for r in records]}")
 
 def get_all_stocks():
-    """모든 주식 데이터 가져오기"""
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
     params = {
         'apiKey': POLYGON_API_KEY,
@@ -198,7 +175,6 @@ def get_all_stocks():
         return []
 
 def filter_stocks(stocks: List) -> List:
-    """주식 데이터 필터링"""
     filtered = []
     total = len(stocks)
     
@@ -227,7 +203,6 @@ def filter_stocks(stocks: List) -> List:
     return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
 
 def convert_exchange_code(mic: str) -> str:
-    """거래소 코드를 읽기 쉬운 형태로 변환"""
     exchange_map = {
         'XNAS': 'NASDAQ',
         'XNYS': 'NYSE',
