@@ -6,7 +6,7 @@ import time
 from typing import Dict, List, Optional
 
 POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
-FMP_API_KEY = "YOUR_FMP_API_KEY"  # FMP API 키를 여기에 입력하세요
+FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"  # FMP API 키를 여기에 입력하세요
 AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
