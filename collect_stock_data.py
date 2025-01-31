@@ -9,6 +9,20 @@ AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3ade
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
+def get_stock_details(ticker: str) -> Dict:
+    """종목 상세정보 조회"""
+    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
+    params = {'apiKey': POLYGON_API_KEY}
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json().get('results', {})
+        return None
+    except Exception as e:
+        print(f"종목 상세정보 조회 중 에러 발생 ({ticker}): {str(e)}")
+        return None
+
 def filter_recent_financials(financials: List, max_quarters=12) -> List:
     """최근 max_quarters 개의 분기 데이터를 필터링"""
     if not financials:
