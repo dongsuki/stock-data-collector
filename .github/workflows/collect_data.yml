@@ -28,20 +28,7 @@ jobs:
     - name: Run collect_stock_data.py
       env:
         POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
-        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./collect_stock_data.py
-      
-    - name: Run highest_traded_value.py
-      env:
-        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
-        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./highest_traded_value.py
-      
-    - name: Run Market Cap Leaders Collection (FMP)
-      env:
         FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./collect_market_cap.py
+      run: python ./collect_stock_data.py
