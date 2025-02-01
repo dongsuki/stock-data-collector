@@ -14,9 +14,12 @@ TABLE_NAME = "미국주식 데이터"
 def get_stock_details(ticker: str) -> Dict:
     """Polygon API를 사용하여 주식 기본 정보 조회"""
     url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
-    params = {'apiKey': POLYGON_API_KEY}
+    headers = {
+        'Authorization': f'Bearer {POLYGON_API_KEY}'
+    }
+    params = {}
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             return response.json().get('results', {})
         return None
@@ -33,7 +36,7 @@ def get_financials_fmp(ticker: str) -> List:
         'limit': 20  # 5년치 분기 데이터
     }
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             financials = response.json()
             return sorted(financials, key=lambda x: x.get('date', ''), reverse=True)
@@ -175,8 +178,10 @@ def update_airtable(stock_data: List, category: str):
 def get_all_stocks():
     """Polygon API를 사용하여 모든 주식 데이터 조회"""
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+    headers = {
+        'Authorization': f'Bearer {POLYGON_API_KEY}'
+    }
     params = {
-        'apiKey': POLYGON_API_KEY,
         'include_otc': False
     }
     
