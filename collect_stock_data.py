@@ -47,11 +47,17 @@ def get_financials_fmp(ticker: str) -> List:
         'limit': 20  # 5년치 분기 데이터
     }
     try:
-        response = requests.get(url, headers=headers, params=params)
+        print(f"재무데이터 요청 중: {ticker}")
+        response = requests.get(url, params=params)
+        
         if response.status_code == 200:
             financials = response.json()
+            print(f"재무데이터 수신 성공: {ticker} (데이터 수: {len(financials)})")
             return sorted(financials, key=lambda x: x.get('date', ''), reverse=True)
-        return []
+        else:
+            print(f"재무데이터 조회 실패 ({ticker}): {response.status_code}")
+            print(f"응답 내용: {response.text}")
+            return []
     except Exception as e:
         print(f"재무데이터 조회 중 에러 발생 ({ticker}): {str(e)}")
         return []
@@ -144,6 +150,7 @@ def update_airtable(stock_data: List, category: str):
     
     for stock in stock_data:
         try:
+            print(f"\n재무데이터 요청: {stock['ticker']}")
             financials = get_financials_fmp(stock['ticker'])
             growth_rates = calculate_growth_rates_fmp(financials)
             
@@ -185,7 +192,7 @@ def update_airtable(stock_data: List, category: str):
                 
         except Exception as e:
             print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
-
+            print(f"성장률 데이터: {growth_rates}")
 def get_all_stocks():
     """Polygon API를 사용하여 모든 주식 데이터 조회"""
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
