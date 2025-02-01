@@ -14,17 +14,28 @@ TABLE_NAME = "미국주식 데이터"
 def get_stock_details(ticker: str) -> Dict:
     """Polygon API를 사용하여 주식 기본 정보 조회"""
     url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
-    headers = {
-        'Authorization': f'Bearer {POLYGON_API_KEY}'
+    params = {
+        'apiKey': POLYGON_API_KEY
     }
-    params = {}
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, params=params)
         if response.status_code == 200:
             return response.json().get('results', {})
+        else:
+            print(f"종목 상세정보 조회 실패 ({ticker})")
+            print(f"상태 코드: {response.status_code}")
+            print(f"응답 내용: {response.text}")
+            
+            if response.status_code == 403:
+                print("API 키 인증 실패")
+            elif response.status_code == 401:
+                print("인증되지 않은 요청")
         return None
     except Exception as e:
         print(f"종목 상세정보 조회 중 에러 발생 ({ticker}): {str(e)}")
+        if hasattr(e, 'response'):
+            print(f"응답 상태 코드: {e.response.status_code}")
+            print(f"응답 내용: {e.response.text}")
         return None
 
 def get_financials_fmp(ticker: str) -> List:
@@ -178,23 +189,35 @@ def update_airtable(stock_data: List, category: str):
 def get_all_stocks():
     """Polygon API를 사용하여 모든 주식 데이터 조회"""
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
-    headers = {
-        'Authorization': f'Bearer {POLYGON_API_KEY}'
-    }
     params = {
+        'apiKey': POLYGON_API_KEY,
         'include_otc': False
     }
     
     try:
+        print(f"API 요청 시작: {url}")
+        print(f"API Key: {POLYGON_API_KEY[:5]}...")  # API 키의 앞부분만 출력
+        
         response = requests.get(url, params=params)
+        
         if response.status_code == 200:
             data = response.json()
             return data.get('tickers', [])
         else:
             print(f"API 요청 실패: {response.status_code}")
+            print(f"응답 내용: {response.text}")  # 에러 응답 내용 출력
+            
+            if response.status_code == 403:
+                print("API 키 인증 실패. API 키를 확인해주세요.")
+            elif response.status_code == 401:
+                print("인증되지 않은 요청입니다. API 키가 올바른지 확인해주세요.")
             return []
+            
     except Exception as e:
         print(f"데이터 수집 중 에러 발생: {str(e)}")
+        if hasattr(e, 'response'):
+            print(f"응답 상태 코드: {e.response.status_code}")
+            print(f"응답 내용: {e.response.text}")
         return []
 
 def filter_stocks(stocks: List) -> List:
