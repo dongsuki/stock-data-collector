@@ -12,167 +12,174 @@ AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
 def convert_exchange_code(mic):
-    """거래소 코드를 읽기 쉬운 형태로 변환"""
-    exchange_map = {
-        'XNAS': 'NASDAQ',
-        'XNYS': 'NYSE',
-        'XASE': 'AMEX'
-    }
-    return exchange_map.get(mic, mic)
+   """거래소 코드를 읽기 쉬운 형태로 변환"""
+   exchange_map = {
+       'XNAS': 'NASDAQ',
+       'XNYS': 'NYSE', 
+       'XASE': 'AMEX'
+   }
+   return exchange_map.get(mic, mic)
 
 def get_52_week_high(ticker):
-    """
-    Polygon.io Aggregates API를 사용하여 52주 신고가 계산
-    (에러 핸들링 및 데이터 구조 검증 강화)
-    """
-    end_date = datetime.now()
-    start_date = end_date - timedelta(weeks=52)
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
-    params = {'adjusted': 'true', 'apiKey': POLYGON_API_KEY}
+   """Polygon.io Aggregates API를 사용하여 52주 신고가와 저가 계산"""
+   end_date = datetime.now()
+   start_date = end_date - timedelta(weeks=52)
+   url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
+   params = {
+       'adjusted': 'true',
+       'sort': 'desc',
+       'limit': 365,
+       'apiKey': POLYGON_API_KEY
+   }
 
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"[{ticker}] API 요청 실패: {e}")
-        return 0.0
+   try:
+       response = requests.get(url, params=params)
+       response.raise_for_status()
+       data = response.json()
 
-    try:
-        data = response.json()
-    except ValueError as e:
-        print(f"[{ticker}] JSON 파싱 실패: {e}")
-        return 0.0
+       if data.get('status') != 'OK':
+           print(f"API 응답 에러 - {ticker}: {data.get('message', 'Unknown error')}")
+           return {'high': 0.0, 'avg_volume': 0}
 
-    results = data.get('results')
-    if not results or not isinstance(results, list):
-        print(f"[{ticker}] 유효한 결과 데이터가 없습니다.")
-        return 0.0
+       if not data.get('results'):
+           return {'high': 0.0, 'avg_volume': 0}
 
-    try:
-        high_prices = [day.get('h', 0.0) for day in results if day.get('h') is not None]
-        if not high_prices:
-            print(f"[{ticker}] 데이터에 'h' 값이 없습니다.")
-            return 0.0
-        return max(high_prices)
-    except Exception as e:
-        print(f"[{ticker}] 52주 신고가 계산 중 오류 발생: {e}")
-        return 0.0
+       high_prices = [day['h'] for day in data['results']]
+       volume = sum(day['v'] for day in data['results'][-30:]) / 30  # 30일 평균 거래량
+       
+       return {'high': max(high_prices), 'avg_volume': volume}
+   except requests.exceptions.RequestException as e:
+       print(f"API 요청 실패 - {ticker}: {str(e)}")
+       return {'high': 0.0, 'avg_volume': 0}
 
 def calculate_52_week_high_parallel(tickers):
-    """
-    병렬 처리로 52주 신고가 계산
-    (각 티커별로 API 호출하여 결과를 딕셔너리 형태로 반환)
-    """
-    results = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        future_to_ticker = {executor.submit(get_52_week_high, ticker): ticker for ticker in tickers}
-        for future in as_completed(future_to_ticker):
-            ticker = future_to_ticker[future]
-            try:
-                results[ticker] = future.result()
-                print(f"{ticker}: 계산된 52주 신고가 = {results[ticker]}")
-            except Exception as e:
-                print(f"{ticker}: 계산 실패 - {e}")
-                results[ticker] = 0.0
-    return results
+   """병렬 처리로 52주 신고가 계산"""
+   results = {}
+   with ThreadPoolExecutor(max_workers=10) as executor:
+       future_to_ticker = {executor.submit(get_52_week_high, ticker): ticker for ticker in tickers}
+       for future in as_completed(future_to_ticker):
+           ticker = future_to_ticker[future]
+           try:
+               results[ticker] = future.result()
+               print(f"{ticker}: 52주 신고가 계산 완료")
+           except Exception as e:
+               print(f"{ticker}: 계산 실패 - {e}")
+               results[ticker] = {'high': 0.0, 'avg_volume': 0}
+   return results
 
 def filter_52_week_high_stocks(stocks):
-    """
-    52주 신고가 상위 주식 필터링
-    - 기존 데이터에 '52w_high' 값이 없으면 병렬 계산한 값을 사용
-    - 현재가(day['c'])가 52주 신고가 이상인 종목만 필터링
-    """
-    filtered = []
-    # '52w_high' 정보가 없는 종목들의 티커 추출
-    missing_high_stocks = [stock for stock in stocks if float(stock.get('52w_high', 0.0)) == 0.0]
-    tickers = [stock.get('ticker') for stock in missing_high_stocks if stock.get('ticker')]
-    
-    # 병렬 처리로 누락된 52주 신고가 계산
-    high_values = {}
-    if tickers:
-        high_values = calculate_52_week_high_parallel(tickers)
+   """52주 신고가 근접 주식 필터링"""
+   filtered = []
+   min_price = 10.0  # 최소 주가 10달러
+   min_volume = 1000000  # 최소 거래량 100만주 
+   high_threshold = 0.95  # 신고가의 95% 이상
+   min_market_cap = 500000000  # 최소 시가총액 5억달러
 
-    for stock in stocks:
-        ticker = stock.get('ticker')
-        if not ticker:
-            continue
+   tickers = [stock['ticker'] for stock in stocks]
+   high_values = calculate_52_week_high_parallel(tickers)
 
-        # 현재가(day['c']) 가져오기 (오류 발생 시 0으로 처리)
-        try:
-            day_data = stock.get('day', {})
-            current_price = float(day_data.get('c', 0))
-        except (ValueError, TypeError):
-            current_price = 0.0
+   for stock in stocks:
+       ticker = stock['ticker']
+       day_data = stock.get('day', {})
+       current_price = float(day_data.get('c', 0))
+       volume = float(day_data.get('v', 0))
+       market_cap = float(stock.get('market_cap', 0))
 
-        # 기존에 저장된 '52w_high'가 있다면 사용, 없으면 병렬 처리 결과 사용
-        try:
-            stored_high = float(stock.get('52w_high', 0.0))
-        except (ValueError, TypeError):
-            stored_high = 0.0
-        high_52_week = stored_high if stored_high > 0 else high_values.get(ticker, 0.0)
+       high_data = high_values.get(ticker, {'high': 0.0, 'avg_volume': 0})
+       high_52_week = high_data['high']
+       avg_volume = high_data['avg_volume']
 
-        print(f"Ticker: {ticker}, Current Price: {current_price}, 52-Week High: {high_52_week}")
+       if (high_52_week > 0 and 
+           current_price >= high_52_week * high_threshold and
+           current_price >= min_price and
+           volume >= min_volume and
+           avg_volume >= min_volume and
+           market_cap >= min_market_cap):
 
-        # 조건: 현재가가 52주 신고가 이상인 경우
-        if high_52_week > 0 and current_price >= high_52_week:
-            stock['52_week_high'] = high_52_week  # Airtable 업데이트용으로 저장
-            filtered.append(stock)
+           stock.update({
+               '52_week_high': high_52_week,
+               'price_to_high_ratio': current_price / high_52_week if high_52_week > 0 else 0,
+               'avg_volume': avg_volume
+           })
+           filtered.append(stock)
 
-    return filtered
+   return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
+
+def format_number(value):
+   """숫자 포맷팅 (K, M, B 단위 변환)"""
+   if value >= 1_000_000_000:
+       return f"{value/1_000_000_000:.2f}B"
+   elif value >= 1_000_000:
+       return f"{value/1_000_000:.2f}M"
+   elif value >= 1_000:
+       return f"{value/1_000:.2f}K"
+   return f"{value:.2f}"
 
 def update_airtable(stock_data, category):
-    """
-    Airtable에 데이터 추가 (필드명: '티커', '종목명', '현재가', '52주 신고가', '업데이트 시간', '분류', '거래소 정보')
-    """
-    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    current_date = datetime.now().strftime("%Y-%m-%d")
+   """Airtable에 데이터 추가 및 업데이트"""
+   airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
+   current_date = datetime.now().strftime("%Y-%m-%d")
 
-    for stock in stock_data:
-        try:
-            day_data = stock.get('day', {})
-            record = {
-                '티커': stock.get('ticker', ''),
-                '종목명': stock.get('name', ''),
-                '현재가': float(day_data.get('c', 0)),
-                '52주 신고가': float(stock.get('52_week_high', 0)),
-                '업데이트 시간': current_date,
-                '분류': category
-            }
-            if stock.get('primary_exchange'):
-                record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
+   existing_records = {record['fields'].get('티커'): record['id'] 
+                      for record in airtable.get_all()}
 
-            airtable.insert(record)
-            print(f"새 데이터 추가 완료: {record['티커']} ({category})")
-            time.sleep(0.2)
-        except Exception as e:
-            print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {e}")
+   for stock in stock_data:
+       try:
+           day_data = stock.get('day', {})
+           record = {
+               '티커': stock.get('ticker', ''),
+               '종목명': stock.get('name', ''),
+               '현재가': float(day_data.get('c', 0)),
+               '52주 신고가': float(stock.get('52_week_high', 0)),
+               '신고가대비': f"{stock.get('price_to_high_ratio', 0) * 100:.1f}%",
+               '거래량': format_number(int(day_data.get('v', 0))),
+               '평균거래량': format_number(int(stock.get('avg_volume', 0))),
+               '시가총액': format_number(float(stock.get('market_cap', 0))),
+               '업데이트 시간': current_date,
+               '분류': category,
+               '거래소': convert_exchange_code(stock.get('primary_exchange', ''))
+           }
+
+           if stock['ticker'] in existing_records:
+               airtable.update(existing_records[stock['ticker']], record)
+               print(f"데이터 업데이트: {record['티커']}")
+           else:
+               airtable.insert(record)
+               print(f"새 데이터 추가: {record['티커']}")
+           
+           time.sleep(0.2)
+
+       except Exception as e:
+           print(f"레코드 처리 오류 ({stock.get('ticker', 'Unknown')}): {str(e)}")
 
 def main():
-    print("데이터 수집 시작...")
+   print("데이터 수집 시작...")
 
-    # Polygon.io Snapshot API 호출: 미국 상장 전체 주식 데이터 조회
-    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
-    params = {'apiKey': POLYGON_API_KEY, 'include_otc': False}
+   url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+   params = {
+       'apiKey': POLYGON_API_KEY, 
+       'include_otc': False,
+       'market': 'stocks',
+       'active': True
+   }
 
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        all_stocks = data.get('tickers', [])
-        print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
-    except Exception as e:
-        print(f"데이터 수집 중 에러 발생: {e}")
-        return
+   try:
+       response = requests.get(url, params=params)
+       response.raise_for_status()
+       all_stocks = response.json().get('tickers', [])
 
-    # 52주 신고가 상위 필터링 (기존 코드 흐름 유지)
-    filtered_stocks = filter_52_week_high_stocks(all_stocks)
-    print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
+       print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
 
-    # Airtable 업로드 (기존 필드명 그대로 사용)
-    if filtered_stocks:
-        update_airtable(filtered_stocks, "52주 신고가 상위")
+       filtered_stocks = filter_52_week_high_stocks(all_stocks)
+       print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
 
-    print("\n모든 데이터 처리 완료!")
+       if filtered_stocks:
+           update_airtable(filtered_stocks, "52주 신고가 상위")
+
+       print("\n데이터 처리 완료!")
+
+   except Exception as e:
+       print(f"데이터 수집 중 에러 발생: {e}")
 
 if __name__ == "__main__":
-    main()
+   main()
