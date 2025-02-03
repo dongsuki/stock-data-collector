@@ -21,28 +21,34 @@ def calculate_eps(net_income: float, shares: float) -> Optional[float]:
         print(f"EPS 계산 중 에러: {str(e)}")
         return None
 
-def is_valid_financials(financials: List) -> bool:
-    """재무데이터의 기본적인 유효성을 검증"""
-    if not financials:
-        return False
+def get_quarter_info(date_str: str) -> Tuple[int, str]:
+    """날짜 문자열에서 연도와 분기 정보 추출"""
+    date = datetime.strptime(date_str, '%Y-%m-%d')
+    month = date.month
+    year = date.year
     
-    # 최소 5개 분기 데이터 필요 (전년 동기 비교를 위해)
-    if len(financials) < 5:
-        print(f"충분하지 않은 분기 데이터: {len(financials)}개")
-        return False
-            
-    return True
-
-def find_matching_quarter(current_date: str, past_quarters: List[Dict]) -> Optional[Dict]:
-    """현재 분기에 대응하는 작년 동기 데이터를 찾음"""
-    try:
-        current = datetime.strptime(current_date, '%Y-%m-%d')
-        target_month = current.month
+    if month <= 3:
+        quarter = 'Q1'
+    elif month <= 6:
+        quarter = 'Q2'
+    elif month <= 9:
+        quarter = 'Q3'
+    else:
+        quarter = 'Q4'
         
-        for quarter in past_quarters:
-            past_date = datetime.strptime(quarter['date'], '%Y-%m-%d')
-            if past_date.month == target_month and past_date.year == current.year - 1:
+    return year, quarter
+
+def find_matching_quarter_data(current_date: str, financials: List[Dict]) -> Optional[Dict]:
+    """Calendar Year와 Period 기준으로 전년 동기 데이터 찾기"""
+    try:
+        current_year, current_quarter = get_quarter_info(current_date)
+        target_year = current_year - 1
+        
+        for quarter in financials:
+            past_year, past_quarter = get_quarter_info(quarter['date'])
+            if past_year == target_year and past_quarter == current_quarter:
                 return quarter
+                
     except Exception as e:
         print(f"분기 매칭 중 에러 발생: {str(e)}")
     
@@ -66,16 +72,17 @@ def safe_growth_rate(current: float, previous: float) -> Optional[float]:
         print(f"성장률 계산 중 에러: {str(e)}")
         return None
 
-def get_financials_fmp(ticker: str) -> List:
+def get_financials_fmp(ticker: str, period: str = 'quarter') -> List:
     """FMP API를 사용하여 재무데이터 조회"""
     url = f"https://financialmodelingprep.com/api/v3/income-statement/{ticker}"
     params = {
         'apikey': FMP_API_KEY,
-        'period': 'quarter',
-        'limit': 20  # 5년치 분기 데이터
+        'period': period,
+        'limit': 20 if period == 'quarter' else 5  # 분기는 20개, 연간은 5개
     }
+    
     try:
-        print(f"\n재무데이터 요청: {ticker}")
+        print(f"\n재무데이터 요청: {ticker} ({period})")
         response = requests.get(url, params=params)
         
         if response.status_code == 200:
@@ -86,40 +93,47 @@ def get_financials_fmp(ticker: str) -> List:
                 print(f"재무데이터 없음: {ticker}")
                 return []
                 
-            # 날짜 기준 내림차순 정렬 (최신 순)
             return sorted(financials, key=lambda x: x.get('date', ''), reverse=True)
         else:
             print(f"재무데이터 조회 실패 ({ticker}): {response.status_code}")
-            print(f"응답 내용: {response.text}")
             return []
     except Exception as e:
         print(f"재무데이터 조회 중 에러 발생 ({ticker}): {str(e)}")
         return []
 
-def calculate_growth_rates_fmp(financials: List) -> Dict:
+def calculate_growth_rates_fmp(ticker: str) -> Dict:
     """재무 성장률 계산 (전년 동기 대비)"""
     growth_rates = {
+        'dates': {
+            'quarters': {'q1': None, 'q2': None, 'q3': None},
+            'years': {'y1': None, 'y2': None, 'y3': None}
+        },
         'eps_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
         'operating_income_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
         'revenue_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None}
     }
     
-    if not is_valid_financials(financials):
-        print("유효하지 않은 재무데이터")
+    # 분기 데이터 조회
+    quarterly_data = get_financials_fmp(ticker, 'quarter')
+    if not quarterly_data:
+        return growth_rates
+        
+    # 연간 데이터 조회
+    annual_data = get_financials_fmp(ticker, 'annual')
+    if not annual_data:
         return growth_rates
 
     try:
         # 분기별 성장률 계산
-        for i in range(3):  # 최근 3개 분기
-            if i >= len(financials):
-                break
-                
-            current_quarter = financials[i]
-            past_quarters = financials[4:]  # 1년 이상 지난 데이터
+        for i in range(min(3, len(quarterly_data))):
+            current_quarter = quarterly_data[i]
+            year_ago_quarter = find_matching_quarter_data(current_quarter['date'], quarterly_data)
             
-            year_ago_quarter = find_matching_quarter(current_quarter['date'], past_quarters)
             if year_ago_quarter:
-                # EPS 직접 계산
+                quarter_key = f'q{i+1}'
+                growth_rates['dates']['quarters'][quarter_key] = current_quarter['date']
+                
+                # EPS 계산
                 current_eps = calculate_eps(
                     current_quarter.get('netIncome', 0),
                     current_quarter.get('weightedAverageShsOut', 0)
@@ -129,75 +143,45 @@ def calculate_growth_rates_fmp(financials: List) -> Dict:
                     year_ago_quarter.get('weightedAverageShsOut', 0)
                 )
                 
-                # 영업이익 성장률
-                current_op = current_quarter.get('operatingIncome', 0)
-                previous_op = year_ago_quarter.get('operatingIncome', 0)
-                
-                # 매출액 성장률
-                current_rev = current_quarter.get('revenue', 0)
-                previous_rev = year_ago_quarter.get('revenue', 0)
-                
-                quarter_key = f'q{i+1}'
+                # 성장률 계산
                 growth_rates['eps_growth'][quarter_key] = safe_growth_rate(current_eps, previous_eps)
-                growth_rates['operating_income_growth'][quarter_key] = safe_growth_rate(current_op, previous_op)
-                growth_rates['revenue_growth'][quarter_key] = safe_growth_rate(current_rev, previous_rev)
-
-                print(f"\n{quarter_key} 분기 계산 결과:")
-                if current_eps is not None and previous_eps is not None:
-                    print(f"EPS: {current_eps:.2f} vs {previous_eps:.2f} -> {growth_rates['eps_growth'][quarter_key]:.1f}%")
-                print(f"영업이익: {current_op:,.0f} vs {previous_op:,.0f} -> {growth_rates['operating_income_growth'][quarter_key]:.1f}%")
-                print(f"매출액: {current_rev:,.0f} vs {previous_rev:,.0f} -> {growth_rates['revenue_growth'][quarter_key]:.1f}%")
-
-        # 연간 재무 데이터 집계
-        def calculate_annual_eps(quarters: List[Dict]) -> Optional[float]:
-            if not quarters:
-                return None
-            try:
-                total_net_income = sum(float(q.get('netIncome', 0)) for q in quarters)
-                # 마지막 분기의 shares 사용
-                shares = float(quarters[0].get('weightedAverageShsOut', 0))
-                if shares <= 0:
-                    return None
-                return total_net_income / shares
-            except (ValueError, TypeError, ZeroDivisionError):
-                return None
-
-        def get_annual_data(quarters: List[Dict]) -> Dict:
-            return {
-                'eps': calculate_annual_eps(quarters),
-                'operatingIncome': sum(float(q.get('operatingIncome', 0) or 0) for q in quarters),
-                'revenue': sum(float(q.get('revenue', 0) or 0) for q in quarters)
-            }
-
-        annual_data = []
-        for year in range(4):  # 최근 4년
-            start_idx = year * 4
-            if start_idx + 3 < len(financials):
-                year_quarters = financials[start_idx:start_idx + 4]
-                annual_data.append(get_annual_data(year_quarters))
+                growth_rates['operating_income_growth'][quarter_key] = safe_growth_rate(
+                    current_quarter.get('operatingIncome'),
+                    year_ago_quarter.get('operatingIncome')
+                )
+                growth_rates['revenue_growth'][quarter_key] = safe_growth_rate(
+                    current_quarter.get('revenue'),
+                    year_ago_quarter.get('revenue')
+                )
 
         # 연간 성장률 계산
-        for i in range(3):  # 3년간의 성장률
-            if i + 1 < len(annual_data):
-                current = annual_data[i]
-                previous = annual_data[i + 1]
-                
-                year_key = f'y{i+1}'
-                growth_rates['eps_growth'][year_key] = safe_growth_rate(current['eps'], previous['eps'])
-                growth_rates['operating_income_growth'][year_key] = safe_growth_rate(
-                    current['operatingIncome'],
-                    previous['operatingIncome']
-                )
-                growth_rates['revenue_growth'][year_key] = safe_growth_rate(
-                    current['revenue'],
-                    previous['revenue']
-                )
-
-                print(f"\n{year_key}년 계산 결과:")
-                if current['eps'] is not None and previous['eps'] is not None:
-                    print(f"EPS: {current['eps']:.2f} vs {previous['eps']:.2f} -> {growth_rates['eps_growth'][year_key]:.1f}%")
-                print(f"영업이익: {current['operatingIncome']:,.0f} vs {previous['operatingIncome']:,.0f} -> {growth_rates['operating_income_growth'][year_key]:.1f}%")
-                print(f"매출액: {current['revenue']:,.0f} vs {previous['revenue']:,.0f} -> {growth_rates['revenue_growth'][year_key]:.1f}%")
+        for i in range(min(3, len(annual_data) - 1)):
+            current_year = annual_data[i]
+            previous_year = annual_data[i + 1]
+            
+            year_key = f'y{i+1}'
+            growth_rates['dates']['years'][year_key] = current_year['date']
+            
+            # EPS 계산
+            current_eps = calculate_eps(
+                current_year.get('netIncome', 0),
+                current_year.get('weightedAverageShsOut', 0)
+            )
+            previous_eps = calculate_eps(
+                previous_year.get('netIncome', 0),
+                previous_year.get('weightedAverageShsOut', 0)
+            )
+            
+            # 성장률 계산
+            growth_rates['eps_growth'][year_key] = safe_growth_rate(current_eps, previous_eps)
+            growth_rates['operating_income_growth'][year_key] = safe_growth_rate(
+                current_year.get('operatingIncome'),
+                previous_year.get('operatingIncome')
+            )
+            growth_rates['revenue_growth'][year_key] = safe_growth_rate(
+                current_year.get('revenue'),
+                previous_year.get('revenue')
+            )
                 
     except Exception as e:
         print(f"성장률 계산 중 에러 발생: {str(e)}")
@@ -213,12 +197,7 @@ def update_airtable(stock_data: List, category: str):
         try:
             print(f"\n{stock['ticker']} 처리 중...")
             
-            financials = get_financials_fmp(stock['ticker'])
-            if not financials:
-                print(f"재무데이터 부족으로 건너뛰기: {stock['ticker']}")
-                continue
-            
-            growth_rates = calculate_growth_rates_fmp(financials)
+            growth_rates = calculate_growth_rates_fmp(stock['ticker'])
             
             record = {
                 '티커': stock.get('ticker', ''),
@@ -229,24 +208,51 @@ def update_airtable(stock_data: List, category: str):
                 '시가총액': float(stock.get('market_cap', 0)),
                 '업데이트 시간': current_date,
                 '분류': category,
+                
+                # EPS 성장률과 날짜
                 'EPS성장률_최신분기': growth_rates['eps_growth']['q1'],
                 'EPS성장률_전분기': growth_rates['eps_growth']['q2'],
                 'EPS성장률_전전분기': growth_rates['eps_growth']['q3'],
                 'EPS성장률_1년': growth_rates['eps_growth']['y1'],
                 'EPS성장률_2년': growth_rates['eps_growth']['y2'],
                 'EPS성장률_3년': growth_rates['eps_growth']['y3'],
+                
+                'EPS성장률_최신분기(날짜)': growth_rates['dates']['quarters'].get('q1'),
+                'EPS성장률_전분기(날짜)': growth_rates['dates']['quarters'].get('q2'),
+                'EPS성장률_전전분기(날짜)': growth_rates['dates']['quarters'].get('q3'),
+                'EPS성장률_1년(날짜)': growth_rates['dates']['years'].get('y1'),
+                'EPS성장률_2년(날짜)': growth_rates['dates']['years'].get('y2'),
+                'EPS성장률_3년(날짜)': growth_rates['dates']['years'].get('y3'),
+                
+                # 영업이익 성장률과 날짜
                 '영업이익성장률_최신분기': growth_rates['operating_income_growth']['q1'],
                 '영업이익성장률_전분기': growth_rates['operating_income_growth']['q2'],
                 '영업이익성장률_전전분기': growth_rates['operating_income_growth']['q3'],
                 '영업이익성장률_1년': growth_rates['operating_income_growth']['y1'],
                 '영업이익성장률_2년': growth_rates['operating_income_growth']['y2'],
                 '영업이익성장률_3년': growth_rates['operating_income_growth']['y3'],
+                
+                '영업이익성장률_최신분기(날짜)': growth_rates['dates']['quarters'].get('q1'),
+                '영업이익성장률_전분기(날짜)': growth_rates['dates']['quarters'].get('q2'),
+                '영업이익성장률_전전분기(날짜)': growth_rates['dates']['quarters'].get('q3'),
+                '영업이익성장률_1년(날짜)': growth_rates['dates']['years'].get('y1'),
+                '영업이익성장률_2년(날짜)': growth_rates['dates']['years'].get('y2'),
+                '영업이익성장률_3년(날짜)': growth_rates['dates']['years'].get('y3'),
+                
+                # 매출액 성장률과 날짜
                 '매출액성장률_최신분기': growth_rates['revenue_growth']['q1'],
                 '매출액성장률_전분기': growth_rates['revenue_growth']['q2'],
                 '매출액성장률_전전분기': growth_rates['revenue_growth']['q3'],
                 '매출액성장률_1년': growth_rates['revenue_growth']['y1'],
                 '매출액성장률_2년': growth_rates['revenue_growth']['y2'],
                 '매출액성장률_3년': growth_rates['revenue_growth']['y3'],
+                
+                '매출액성장률_최신분기(날짜)': growth_rates['dates']['quarters'].get('q1'),
+                '매출액성장률_전분기(날짜)': growth_rates['dates']['quarters'].get('q2'),
+                '매출액성장률_전전분기(날짜)': growth_rates['dates']['quarters'].get('q3'),
+                '매출액성장률_1년(날짜)': growth_rates['dates']['years'].get('y1'),
+                '매출액성장률_2년(날짜)': growth_rates['dates']['years'].get('y2'),
+                '매출액성장률_3년(날짜)': growth_rates['dates']['years'].get('y3'),
             }
             
             if stock.get('primary_exchange'):
@@ -285,8 +291,6 @@ def get_all_stocks():
     
     try:
         print(f"API 요청 시작: {url}")
-        print(f"API Key: {POLYGON_API_KEY[:5]}...")
-        
         response = requests.get(url, params=params)
         
         if response.status_code == 200:
@@ -349,6 +353,7 @@ def main():
     print("데이터 수집 시작...")
     print("필터링 조건: 현재가 >= $5, 거래량 >= 1M주, 등락률 >= 5%, 시가총액 >= $500M")
     
+    # Polygon API로 전일대비 상승률 상위 종목 필터링
     all_stocks = get_all_stocks()
     if not all_stocks:
         print("데이터 수집 실패")
@@ -359,6 +364,7 @@ def main():
     print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
     
     if filtered_stocks:
+        # FMP API로 재무데이터 조회 및 Airtable 업데이트
         update_airtable(filtered_stocks, "전일대비등락률상위")
     
     print("\n모든 데이터 처리 완료!")
