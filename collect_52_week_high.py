@@ -19,31 +19,32 @@ def convert_exchange_code(mic):
    return exchange_map.get(mic, mic)
 
 def filter_stocks(stocks):
-   """기본 조건으로 주식 필터링"""
-   filtered = []
-   min_price = 10.0  # 최소 주가
-   min_volume = 1000000  # 최소 거래량 
-   min_market_cap = 500000000  # 최소 시가총액
+    filtered = []
+    min_price = 10.0
+    min_volume = 1000000
+    min_market_cap = 500000000
 
-   for stock in stocks:
-       day_data = stock.get('day', {})
-       if not day_data:
-           continue
-           
-       try:
-           current_price = float(day_data.get('c', 0))
-           volume = float(day_data.get('v', 0))
-           market_cap = float(stock.get('market_cap', 0))
-           
-           if (current_price >= min_price and 
-               volume >= min_volume and 
-               market_cap >= min_market_cap):
-               filtered.append(stock)
-       except (ValueError, TypeError):
-           continue
+    for stock in stocks:
+        day_data = stock.get('day', {})
+        if not day_data:
+            continue
+            
+        try:
+            current_price = float(day_data.get('c', 0))
+            volume = float(day_data.get('v', 0))
+            # market_cap 직접 계산
+            market_cap = current_price * float(stock.get('weighted_shares_outstanding', 0))
+            
+            if (current_price >= min_price and 
+                volume >= min_volume and 
+                market_cap >= min_market_cap):
+                filtered.append(stock)
+                print(f"{stock['ticker']}: ${current_price}, Vol: {volume}, Cap: ${market_cap:,.0f}")
+        except (ValueError, TypeError):
+            continue
 
-   return filtered
-
+    return filtered
+   
 def get_52_week_high(ticker):
    """52주 신고가와 평균 거래량 계산"""
    end_date = datetime.now()
