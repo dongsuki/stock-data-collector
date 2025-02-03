@@ -5,16 +5,12 @@ from airtable import Airtable
 import time
 from typing import Dict, List, Optional, Tuple
 
-# API 키들을 환경변수에서 가져오기
-POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
-FMP_API_KEY = os.getenv('FMP_API_KEY')
-AIRTABLE_API_KEY = os.getenv('AIRTABLE_API_KEY')
-AIRTABLE_BASE_ID = os.getenv('AIRTABLE_BASE_ID')
+# API 키 직접 설정
+POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
+FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
+AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
+AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
-
-# API 키 유효성 검사
-if not all([POLYGON_API_KEY, FMP_API_KEY, AIRTABLE_API_KEY, AIRTABLE_BASE_ID]):
-    raise ValueError("필요한 API 키가 환경변수에 설정되지 않았습니다.")
 
 def calculate_eps(net_income: float, shares: float) -> Optional[float]:
     """순이익과 주식수로 EPS 직접 계산"""
