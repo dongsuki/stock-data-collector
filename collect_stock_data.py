@@ -5,115 +5,22 @@ from airtable import Airtable
 import time
 from typing import Dict, List, Optional, Tuple
 
-POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
-FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
-AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
-AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
+# API 키들을 환경변수에서 가져오기
+POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
+FMP_API_KEY = os.getenv('FMP_API_KEY')
+AIRTABLE_API_KEY = os.getenv('AIRTABLE_API_KEY')
+AIRTABLE_BASE_ID = os.getenv('AIRTABLE_BASE_ID')
 TABLE_NAME = "미국주식 데이터"
+
+# API 키 유효성 검사
+if not all([POLYGON_API_KEY, FMP_API_KEY, AIRTABLE_API_KEY, AIRTABLE_BASE_ID]):
+    raise ValueError("필요한 API 키가 환경변수에 설정되지 않았습니다.")
 
 def calculate_eps(net_income: float, shares: float) -> Optional[float]:
     """순이익과 주식수로 EPS 직접 계산"""
     try:
         if not net_income or not shares or shares <= 0:
-            return response.json().get('results', {})
-        else:
-            print(f"종목 상세정보 조회 실패 ({ticker}): {response.status_code}")
-            print(f"응답 내용: {response.text}")
             return None
-    except Exception as e:
-        print(f"종목 상세정보 조회 중 에러 발생 ({ticker}): {str(e)}")
-        return None
-
-def get_all_stocks():
-    """Polygon API를 사용하여 모든 주식 데이터 조회"""
-    url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
-    params = {
-        'apiKey': POLYGON_API_KEY,
-        'include_otc': False
-    }
-    
-    try:
-        print(f"API 요청 시작: {url}")
-        response = requests.get(url, params=params)
-        
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('tickers', [])
-        else:
-            print(f"API 요청 실패: {response.status_code}")
-            print(f"응답 내용: {response.text}")
-            return []
-            
-    except Exception as e:
-        print(f"데이터 수집 중 에러 발생: {str(e)}")
-        return []
-
-def filter_stocks(stocks: List) -> List:
-    """주식 데이터 필터링"""
-    filtered = []
-    total = len(stocks)
-    
-    print(f"총 {total}개 종목 필터링 시작...")
-    
-    for i, stock in enumerate(stocks, 1):
-        try:
-            day_data = stock.get('day', {})
-            price = float(day_data.get('c', 0))
-            volume = int(day_data.get('v', 0))
-            change = float(stock.get('todaysChangePerc', 0))
-            
-            if i % 100 == 0:
-                print(f"진행 중... {i}/{total}")
-            
-            if price >= 5 and volume >= 1000000 and change >= 5:
-                details = get_stock_details(stock['ticker'])
-                if details:
-                    market_cap = float(details.get('market_cap', 0))
-                    if market_cap >= 500000000:
-                        stock['name'] = details.get('name', '')
-                        stock['market_cap'] = market_cap
-                        stock['primary_exchange'] = details.get('primary_exchange', '')
-                        filtered.append(stock)
-                        print(f"조건 만족: {stock['ticker']} (시가총액: ${market_cap:,.2f})")
-                        time.sleep(0.5)  # Rate limit 고려
-        
-        except Exception as e:
-            print(f"종목 필터링 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
-            continue
-    
-    return sorted(filtered, key=lambda x: x.get('todaysChangePerc', 0), reverse=True)
-
-def convert_exchange_code(mic: str) -> str:
-    """거래소 코드 변환"""
-    exchange_map = {
-        'XNAS': 'NASDAQ',
-        'XNYS': 'NYSE',
-        'XASE': 'AMEX'
-    }
-    return exchange_map.get(mic, mic)
-
-def main():
-    print("데이터 수집 시작...")
-    print("필터링 조건: 현재가 >= $5, 거래량 >= 1M주, 등락률 >= 5%, 시가총액 >= $500M")
-    
-    # Polygon API로 전일대비 상승률 상위 종목 필터링
-    all_stocks = get_all_stocks()
-    if not all_stocks:
-        print("데이터 수집 실패")
-        return
-        
-    print(f"\n총 {len(all_stocks)}개 종목 데이터 수집됨")
-    filtered_stocks = filter_stocks(all_stocks)
-    print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
-    
-    if filtered_stocks:
-        # FMP API로 재무데이터 조회 및 Airtable 업데이트
-        update_airtable(filtered_stocks, "전일대비등락률상위")
-    
-    print("\n모든 데이터 처리 완료!")
-
-if __name__ == "__main__":
-    main() None
         return net_income / shares
     except (ValueError, TypeError, ZeroDivisionError) as e:
         print(f"EPS 계산 중 에러: {str(e)}")
@@ -356,4 +263,5 @@ def get_stock_details(ticker: str) -> Dict:
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
-            return
+            return response.json().get('results', {})
+        else
