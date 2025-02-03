@@ -19,28 +19,27 @@ def convert_exchange_code(mic):
    return exchange_map.get(mic, mic)
 
 def filter_stocks(stocks):
-   filtered = []
-   min_price = 10.0
-   min_volume = 1000000
-   min_market_cap = 500000000
+    filtered = []
+    min_price = 10.0
+    min_volume = 1000000
+    min_market_cap = 500000000
 
-   for stock in stocks:
-       try:
-           session = stock.get('session', {})
-           current_price = float(session.get('close', 0))
-           volume = float(session.get('volume', 0))
-           market_cap = float(stock.get('market_cap', 0))
-           
-           if (current_price >= min_price and 
-               volume >= min_volume and 
-               market_cap >= min_market_cap):
-               filtered.append(stock)
-               print(f"{stock['ticker']}: ${current_price}, Vol: {volume:,.0f}, Cap: ${market_cap:,.0f}")
-       except (ValueError, TypeError) as e:
-           continue
+    for stock in stocks:
+        try:
+            # Polygon API 응답 구조에 맞게 수정
+            price_data = stock.get('lastQuote', {})
+            current_price = float(price_data.get('p', 0))  # 현재가
+            volume = float(stock.get('day', {}).get('v', 0))  # 일일 거래량
+            market_cap = float(stock.get('market_cap', 0))
+            
+            if current_price >= min_price and volume >= min_volume and market_cap >= min_market_cap:
+                filtered.append(stock)
+                print(f"필터 통과: {stock['ticker']} - 가격: ${current_price}, 거래량: {volume:,.0f}")
+        except (ValueError, TypeError) as e:
+            continue
 
-   return filtered
-
+    return filtered
+   
 def get_52_week_high(ticker):
    end_date = datetime.now()
    start_date = end_date - timedelta(weeks=52)
