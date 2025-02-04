@@ -1,3 +1,16 @@
+import os
+import requests
+from datetime import datetime
+from airtable import Airtable
+import time
+
+# API 설정
+FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
+AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
+AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
+TABLE_NAME = "미국주식 데이터"
+
+
 def safe_float(value, default=0.0):
     """안전하게 float로 변환"""
     try:
@@ -13,37 +26,50 @@ def is_valid_us_stock(stock):
     exchange = stock.get('exchange', '')
     type = stock.get('type', '').lower()
     name = stock.get('name', '').lower()
-    
-    # ETF 제외
-    if 'etf' in type:
-        return False
-        
-    # 미국 거래소만 포함
-    if exchange not in {'NYSE', 'NASDAQ'}:
-        return False
-        
-    # 워런트, ADR, 우선주 등 제외
-    invalid_keywords = [
-        'warrant', 'warrants', 'adr', 'preferred', 
-        'acquisition', 'right', 'rights',
-        'merger', 'spac', 'trust', 'unit', 'units'
-    ]
-    if any(keyword in name.lower() for keyword in invalid_keywords):
-        return False
-        
-    # 특수 심볼 포함된 것 제외
-    if any(x in symbol for x in ['-', '^', '.', '$', '=', ' ']):
-        return False
-        
-    # 심볼이 5자 이상인 경우 대부분 특수 증권
-    if len(symbol) > 4:
-        return False
-    
-    # 가격이 고정되어 있는 경우 (인수합병 등) 제외
+    volume = safe_float(stock.get('volume'))
     price = safe_float(stock.get('price'))
     dayHigh = safe_float(stock.get('dayHigh'))
     dayLow = safe_float(stock.get('dayLow'))
-    if price > 0 and dayHigh == dayLow:  # 당일 고가/저가가 동일하면 거래정지 의심
+    previousClose = safe_float(stock.get('previousClose'))
+    
+    # 1. 기본 제외 조건
+    if 'etf' in type:
+        return False
+    if exchange not in {'NYSE', 'NASDAQ'}:
+        return False
+    
+    # 2. 특수 증권 관련 키워드 체크
+    invalid_keywords = [
+        'warrant', 'warrants', 'adr', 'preferred', 'acquisition', 
+        'right', 'rights', 'merger', 'spac', 'trust', 'unit', 
+        'notes', 'bond', 'preferred', 'series', 'class',
+        'holding', 'holdings', 'fund', 'partners', 'management'
+    ]
+    if any(keyword in name.lower() for keyword in invalid_keywords):
+        return False
+    
+    # 3. 특수 심볼 체크
+    if any(x in symbol for x in ['-', '^', '.', '$', '=', ' ', '/', '_']):
+        return False
+    if len(symbol) > 4:  # 대부분의 정상 주식은 1-4자
+        return False
+        
+    # 4. 거래 정지/중단 체크
+    if price <= 0 or previousClose <= 0:
+        return False
+    if dayHigh == dayLow:  # 당일 가격 변동이 전혀 없음 (거래정지 의심)
+        return False
+    if volume == 0:  # 거래량이 0
+        return False
+    
+    # 5. 인수합병 진행중인지 체크 (가격이 고정되어 있는 경우)
+    price_range_ratio = (dayHigh - dayLow) / price if price > 0 else 0
+    if price_range_ratio < 0.001:  # 가격 변동폭이 0.1% 미만
+        return False
+    
+    # 6. 거래 활성도 체크
+    min_daily_dollar_volume = 1000000  # 최소 100만달러 거래대금
+    if price * volume < min_daily_dollar_volume:
         return False
     
     return True
