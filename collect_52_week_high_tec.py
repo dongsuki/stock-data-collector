@@ -24,6 +24,30 @@ def safe_float(value, default=0.0):
         return default
 
 
+def get_delisted_stocks():
+    """FMP API에서 상장폐지된 종목 목록 가져오기"""
+    url = f"https://financialmodelingprep.com/api/v3/delisted-companies?apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            return {item['symbol'] for item in response.json()}
+    except Exception as e:
+        print(f"❌ 상장폐지 종목 데이터 가져오기 실패: {str(e)}")
+    return set()
+
+
+def get_tradable_stocks():
+    """현재 거래 가능한 종목 목록 가져오기"""
+    url = f"https://financialmodelingprep.com/api/v3/available-traded/list?apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            return {item['symbol'] for item in response.json()}
+    except Exception as e:
+        print(f"❌ 거래 가능한 종목 데이터 가져오기 실패: {str(e)}")
+    return set()
+
+
 def get_quotes():
     """미국 주식 데이터 가져오기"""
     print("📡 데이터 수집 시작...")
@@ -54,80 +78,139 @@ def get_quotes():
     return all_stocks
 
 
-def get_delisted_stocks():
-    """FMP API에서 상장폐지된 종목 목록 가져오기"""
-    url = f"https://financialmodelingprep.com/api/v3/delisted-companies?apikey={FMP_API_KEY}"
+def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
+    """실제 거래 가능한 미국 주식인지 확인"""
+    symbol = stock.get('symbol', '')
+    exchange = stock.get('exchange', '')
+    type = stock.get('type', '').lower()
+    name = stock.get('name', '') or ''  # None 방지
+    name = name.lower()
+    volume = safe_float(stock.get('volume'))
+    price = safe_float(stock.get('price'))
+
+    # ✅ 1. ETF 제외 (ETF 관련 키워드 포함된 경우)
+    etf_keywords = ['etf', 'trust', 'fund']
+    if 'etf' in type or any(keyword in name for keyword in etf_keywords):
+        return False
+
+    # ✅ 2. NYSE/NASDAQ이 아닌 경우 제외
+    if exchange not in {'NYSE', 'NASDAQ'}:
+        return False
+
+    # ✅ 3. 상장폐지 종목 필터링
+    if symbol in delisted_stocks:
+        return False
+
+    # ✅ 4. 현재 거래 가능한 종목 필터링
+    if symbol not in tradable_stocks:
+        return False
+
+    # ✅ 5. 특수 증권 관련 키워드 체크
+    invalid_keywords = [
+        'warrant', 'warrants', 'adr', 'preferred', 'acquisition',
+        'right', 'rights', 'merger', 'spac', 'unit', 'notes',
+        'bond', 'series', 'class', 'holding', 'holdings', 'partners', 'management'
+    ]
+    if any(keyword in name for keyword in invalid_keywords):
+        return False
+
+    # ✅ 6. 거래 활성도 체크
+    min_daily_dollar_volume = 1000000  # 최소 100만 달러 거래대금
+    if price * volume < min_daily_dollar_volume:
+        return False
+
+    return True
+
+
+def check_technical_conditions(stock):
+    """기술적 지표 조건 확인"""
+    price = safe_float(stock.get('price'))
+    ma50 = safe_float(stock.get('priceAvg50'))
+    ma150 = safe_float(stock.get('priceAvg150', 0))  # 150일 이평선 추가 필요
+    ma200 = safe_float(stock.get('priceAvg200'))
+    yearLow = safe_float(stock.get('yearLow'))
+    
+    # 이전 달의 200일 이평선 데이터를 가져오기 위한 API 호출
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{stock['symbol']}?apikey={FMP_API_KEY}&serietype=line"
     try:
         response = requests.get(url, timeout=30)
         if response.status_code == 200:
-            return {item['symbol'] for item in response.json()}
-    except Exception as e:
-        print(f"❌ 상장폐지 종목 데이터 가져오기 실패: {str(e)}")
-    return set()
+            historical_data = response.json().get('historical', [])
+            if len(historical_data) >= 230:  # 200일 + 30일(1개월) 데이터 필요
+                # 1개월 전 200일 이평선 계산
+                previous_ma200 = sum(float(data['close']) for data in historical_data[30:230]) / 200
+                current_ma200 = sum(float(data['close']) for data in historical_data[0:200]) / 200
+                ma200_trend_rising = current_ma200 > previous_ma200
+            else:
+                return False
+        else:
+            return False
+    except Exception:
+        return False
 
-
-def get_tradable_stocks():
-    """현재 거래 가능한 종목 목록 가져오기"""
-    url = f"https://financialmodelingprep.com/api/v3/available-traded/list?apikey={FMP_API_KEY}"
-    try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            return {item['symbol'] for item in response.json()}
-    except Exception as e:
-        print(f"❌ 거래 가능한 종목 데이터 가져오기 실패: {str(e)}")
-    return set()
-
-
-def get_moving_averages(symbol):
-    """FMP API에서 이동평균선 데이터 가져오기"""
-    url = f"https://financialmodelingprep.com/api/v3/technical_indicator/daily/{symbol}?type=sma&period=50,150,200&apikey={FMP_API_KEY}"
-    try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            if len(data) > 0:
-                return {
-                    'sma50': safe_float(data[0].get('sma50')),
-                    'sma150': safe_float(data[0].get('sma150')),
-                    'sma200': safe_float(data[0].get('sma200'))
-                }
-    except Exception as e:
-        print(f"❌ 이동평균 데이터 가져오기 실패 ({symbol}): {str(e)}")
-    return None
-
-
-def is_moving_average_uptrend(symbol, ma_type, days=30):
-    """이동평균선이 일정 기간 동안 상승 추세인지 확인"""
-    url = f"https://financialmodelingprep.com/api/v3/technical_indicator/daily/{symbol}?type={ma_type}&limit={days}&apikey={FMP_API_KEY}"
-    try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            if len(data) >= days:
-                first_value = safe_float(data[-1].get(ma_type))
-                last_value = safe_float(data[0].get(ma_type))
-                return last_value > first_value  # 최근 값이 과거 값보다 크면 상승 추세
-    except Exception as e:
-        print(f"❌ {ma_type} 상승 추세 확인 실패 ({symbol}): {str(e)}")
-    return False
+    # 조건 체크
+    conditions = [
+        price > ma150 and price > ma200,  # 1. 주가가 150일 및 200일 이평선 위
+        ma150 > ma200,  # 2. 150일 이평선이 200일 이평선 위
+        ma200_trend_rising,  # 3. 200일 이평선 1개월 이상 상승 추세
+        ma50 > ma150 or ma50 > ma200,  # 4. 50일 이평선이 150일 or 200일 이평선 위
+        price > ma50,  # 5. 현 주가가 50일 이평선 위
+        price > (yearLow * 1.30),  # 6. 52주 저가 대비 30% 이상
+        True  # 7. 52주 고가 대비 75% 이상은 filter_stocks에서 처리
+    ]
+    
+    return all(conditions)
 
 
 def filter_stocks(stocks):
     """주식 필터링"""
     print("\n🔎 필터링 시작...")
+    print(f"📌 필터링 전 종목 수: {len(stocks)}개")
+
     delisted_stocks = get_delisted_stocks()
     tradable_stocks = get_tradable_stocks()
+    print(f"✅ 상장폐지 종목 수: {len(delisted_stocks)}개")
+    print(f"✅ 현재 거래 가능한 종목 수: {len(tradable_stocks)}개")
 
-    filtered = [
-        stock for stock in stocks if is_valid_us_stock(stock, delisted_stocks, tradable_stocks)
-    ]
+    filtered = []
+    for stock in stocks:
+        if not is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
+            continue
+
+        price = safe_float(stock.get('price'))
+        volume = safe_float(stock.get('volume'))
+        yearHigh = safe_float(stock.get('yearHigh'))
+        marketCap = safe_float(stock.get('marketCap'))
+
+        price_to_high_ratio = (price / yearHigh) * 100
+        change_percent = ((price - safe_float(stock.get('previousClose'))) / safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
+
+        # 기본 조건과 기술적 조건 모두 확인
+        if (price >= 10 and volume >= 1000000 and 
+            marketCap >= 500000000 and 
+            price_to_high_ratio >= 75 and  # 75%로 수정
+            check_technical_conditions(stock)):
+            
+            filtered.append({
+                'symbol': stock['symbol'],
+                'price': price,
+                'volume': volume,
+                'yearHigh': yearHigh,
+                'marketCap': marketCap,
+                'name': stock['name'],
+                'exchange': stock['exchange'],
+                'price_to_high_ratio': price_to_high_ratio,
+                'change_percent': change_percent
+            })
+
     print(f"✅ 조건 만족 종목: {len(filtered)}개")
-    return filtered
+    return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
 
 
 def update_airtable(stocks):
     """Airtable에 새 레코드 추가"""
     print("\n📡 Airtable 업데이트 시작...")
+    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
 
     for stock in stocks:
@@ -139,7 +222,7 @@ def update_airtable(stocks):
             '거래량': stock['volume'],
             '시가총액': stock['marketCap'],
             '업데이트 시간': current_date,
-            '분류': "52주_신고가_기술분석_포함",
+            '분류': "52주_신고가_근접",
             '거래소 정보': stock['exchange'],
             '신고가 비율(%)': stock['price_to_high_ratio']
         }
