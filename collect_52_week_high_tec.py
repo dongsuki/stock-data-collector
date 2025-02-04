@@ -6,8 +6,8 @@ import time
 
 # API 설정
 FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
-AIRTABLE_API_KEY = "your_airtable_api_key"
-AIRTABLE_BASE_ID = "your_airtable_base_id"
+AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
+AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"  # Airtable 테이블명
 
 # Airtable 객체 생성
@@ -22,6 +22,36 @@ def safe_float(value, default=0.0):
         return float(value)
     except (ValueError, TypeError):
         return default
+
+
+def get_quotes():
+    """미국 주식 데이터 가져오기"""
+    print("📡 데이터 수집 시작...")
+
+    # NASDAQ 데이터 수집
+    url_nasdaq = f"https://financialmodelingprep.com/api/v3/quotes/nasdaq?apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url_nasdaq, timeout=30)
+        nasdaq_stocks = response.json() if response.status_code == 200 else []
+        print(f"📌 NASDAQ 종목 수집 완료: {len(nasdaq_stocks)}개")
+    except Exception as e:
+        print(f"❌ NASDAQ 데이터 수집 실패: {str(e)}")
+        nasdaq_stocks = []
+
+    # NYSE 데이터 수집
+    url_nyse = f"https://financialmodelingprep.com/api/v3/quotes/nyse?apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url_nyse, timeout=30)
+        nyse_stocks = response.json() if response.status_code == 200 else []
+        print(f"📌 NYSE 종목 수집 완료: {len(nyse_stocks)}개")
+    except Exception as e:
+        print(f"❌ NYSE 데이터 수집 실패: {str(e)}")
+        nyse_stocks = []
+
+    all_stocks = nasdaq_stocks + nyse_stocks
+    print(f"✅ 총 수집 종목 수: {len(all_stocks)}개")
+
+    return all_stocks
 
 
 def get_delisted_stocks():
@@ -80,66 +110,6 @@ def is_moving_average_uptrend(symbol, ma_type, days=30):
     except Exception as e:
         print(f"❌ {ma_type} 상승 추세 확인 실패 ({symbol}): {str(e)}")
     return False
-
-
-def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
-    """기술적 분석을 기반으로 52주 신고가 후보 종목 필터링"""
-    symbol = stock.get('symbol', '')
-    exchange = stock.get('exchange', '')
-    type = stock.get('type', '').lower()
-    name = stock.get('name', '') or ''  # None 방지
-    name = name.lower()
-    volume = safe_float(stock.get('volume'))
-    price = safe_float(stock.get('price'))
-    yearHigh = safe_float(stock.get('yearHigh'))
-    yearLow = safe_float(stock.get('yearLow'))
-
-    # ✅ 1. ETF 제외
-    etf_keywords = ['etf', 'trust', 'fund']
-    if 'etf' in type or any(keyword in name for keyword in etf_keywords):
-        return False
-
-    # ✅ 2. NYSE/NASDAQ 종목만 포함
-    if exchange not in {'NYSE', 'NASDAQ'}:
-        return False
-
-    # ✅ 3. 상장폐지 종목 필터링
-    if symbol in delisted_stocks:
-        return False
-
-    # ✅ 4. 현재 거래 가능한 종목 필터링
-    if symbol not in tradable_stocks:
-        return False
-
-    # ✅ 5. 이동평균선 조건 확인
-    moving_averages = get_moving_averages(symbol)
-    if not moving_averages:
-        return False
-
-    sma50 = moving_averages.get('sma50')
-    sma150 = moving_averages.get('sma150')
-    sma200 = moving_averages.get('sma200')
-
-    if not (sma50 and sma150 and sma200):
-        return False
-
-    # 이동평균선 체크 조건 적용
-    if price < sma150 or price < sma200:
-        return False
-    if sma150 < sma200:
-        return False
-    if not is_moving_average_uptrend(symbol, 'sma200', 30):
-        return False
-    if sma50 < sma150 and sma50 < sma200:
-        return False
-    if price < sma50:
-        return False
-    if price < yearLow * 1.3:
-        return False
-    if price < yearHigh * 0.75:
-        return False
-
-    return True
 
 
 def filter_stocks(stocks):
