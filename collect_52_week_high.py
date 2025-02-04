@@ -11,29 +11,61 @@ AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3ade
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
+def safe_float(value, default=0.0):
+    """안전하게 float로 변환"""
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+def is_valid_us_stock(stock):
+    """미국 주식인지 확인 (ETF 제외)"""
+    symbol = stock.get('symbol', '')
+    exchange = stock.get('exchange', '')
+    type = stock.get('type', '').lower()
+    
+    # ETF 제외
+    if 'etf' in type or any(x in symbol for x in ['-', '^', '.']):
+        return False
+        
+    # 미국 거래소만 포함
+    return exchange in {'NYSE', 'NASDAQ'}
+
+def calculate_change_percent(stock):
+    """현재가 기준 등락률 계산"""
+    price = safe_float(stock.get('price'))
+    previousClose = safe_float(stock.get('previousClose'))
+    
+    if previousClose > 0:
+        return ((price - previousClose) / previousClose) * 100
+    return 0.0
+
 def get_quotes():
     """미국 주식 데이터 가져오기"""
     print("데이터 수집 시작...")
-    url = f"https://financialmodelingprep.com/api/v3/quotes/nyse?apikey={FMP_API_KEY}"
     
+    # NASDAQ 데이터
+    url = f"https://financialmodelingprep.com/api/v3/quotes/nasdaq?apikey={FMP_API_KEY}"
     try:
-        response = requests.get(url)
-        nyse_stocks = response.json() if response.status_code == 200 else []
-        print(f"NYSE 종목 수집: {len(nyse_stocks)}개")
-        
-        # 첫 번째 종목 데이터 출력
-        if nyse_stocks:
-            print("\nNYSE 샘플 데이터:")
-            print(nyse_stocks[0])
-        
-        # NASDAQ 데이터 가져오기
-        url = f"https://financialmodelingprep.com/api/v3/quotes/nasdaq?apikey={FMP_API_KEY}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=30)
         nasdaq_stocks = response.json() if response.status_code == 200 else []
         print(f"NASDAQ 종목 수집: {len(nasdaq_stocks)}개")
         
-        all_stocks = nyse_stocks + nasdaq_stocks
+        # NYSE 데이터
+        url = f"https://financialmodelingprep.com/api/v3/quotes/nyse?apikey={FMP_API_KEY}"
+        response = requests.get(url, timeout=30)
+        nyse_stocks = response.json() if response.status_code == 200 else []
+        print(f"NYSE 종목 수집: {len(nyse_stocks)}개")
+        
+        all_stocks = nasdaq_stocks + nyse_stocks
         print(f"총 수집 종목 수: {len(all_stocks)}개")
+        
+        if all_stocks:
+            print("\n첫 번째 종목 데이터 샘플:")
+            print(all_stocks[0])
+        
         return all_stocks
         
     except Exception as e:
@@ -43,15 +75,20 @@ def get_quotes():
 def filter_stocks(stocks):
     """주식 필터링"""
     print("\n필터링 시작...")
+    print(f"필터링 전 종목 수: {len(stocks)}개")
     filtered = []
     invalid_count = 0
     
     for stock in stocks:
         try:
-            price = float(stock.get('price', 0))
-            volume = float(stock.get('volume', 0))
-            yearHigh = float(stock.get('yearHigh', 0))
-            marketCap = float(stock.get('marketCap', 0))
+            if not is_valid_us_stock(stock):
+                invalid_count += 1
+                continue
+                
+            price = safe_float(stock.get('price'))
+            volume = safe_float(stock.get('volume'))
+            yearHigh = safe_float(stock.get('yearHigh'))
+            marketCap = safe_float(stock.get('marketCap'))
             
             # 데이터 유효성 검사
             if price <= 0 or yearHigh <= 0:
@@ -60,6 +97,9 @@ def filter_stocks(stocks):
                 
             # 52주 고가 대비 현재가 비율
             price_to_high_ratio = (price / yearHigh) * 100
+            
+            # 등락률 계산
+            change_percent = calculate_change_percent(stock)
             
             if (price >= 10 and 
                 volume >= 1000000 and 
@@ -74,7 +114,8 @@ def filter_stocks(stocks):
                     'marketCap': marketCap,
                     'name': stock.get('name', ''),
                     'exchange': stock.get('exchange', ''),
-                    'price_to_high_ratio': price_to_high_ratio
+                    'price_to_high_ratio': price_to_high_ratio,
+                    'change_percent': change_percent
                 })
                 
                 print(f"\n조건 만족: {stock.get('symbol')}")
@@ -83,6 +124,7 @@ def filter_stocks(stocks):
                 print(f"52주 고가: ${yearHigh:,.2f}")
                 print(f"시가총액: ${marketCap:,.2f}")
                 print(f"고가대비: {price_to_high_ratio:.1f}%")
+                print(f"등락률: {change_percent:.1f}%")
                 
         except Exception as e:
             invalid_count += 1
@@ -105,12 +147,13 @@ def update_airtable(stocks):
                 '티커': stock['symbol'],
                 '종목명': stock['name'],
                 '현재가': stock['price'],
-                '등락률': stock['price_to_high_ratio'] - 100,
+                '등락률': stock['change_percent'],
                 '거래량': stock['volume'],
                 '시가총액': stock['marketCap'],
                 '업데이트 시간': current_date,
                 '분류': "52주_신고가_근접",
-                '거래소 정보': stock['exchange']
+                '거래소 정보': stock['exchange'],
+                '신고가 비율(%)': stock['price_to_high_ratio']
             }
             
             airtable.insert(record)
@@ -126,10 +169,11 @@ def main():
     print("- 거래량 >= 1,000,000주")
     print("- 시가총액 >= $500,000,000")
     print("- 현재가가 52주 고가의 95% 이상")
+    print("- 미국 거래소 상장 종목만 (ETF 제외)")
     
     start_time = time.time()
-    stocks = get_quotes()
     
+    stocks = get_quotes()
     if not stocks:
         print("데이터 수집 실패")
         return
