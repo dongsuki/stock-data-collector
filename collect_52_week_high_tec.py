@@ -221,33 +221,46 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     return True
 
 def check_technical_conditions(stock, ma_data):
-   """기술적 조건 확인"""
-   try:
-       current_price = safe_float(stock.get('price'))
-       ma50 = safe_float(ma_data.get('MA50'))
-       ma150 = safe_float(ma_data.get('MA150'))
-       ma200 = safe_float(ma_data.get('MA200'))
-       ma200_trend = ma_data.get('MA200_trend')
-       year_low = safe_float(stock.get('yearLow'))
+    """기술적 조건 확인"""
+    try:
+        symbol = stock.get('symbol')
+        current_price = safe_float(stock.get('price'))
+        ma50 = safe_float(ma_data.get('MA50'))
+        ma150 = safe_float(ma_data.get('MA150'))
+        ma200 = safe_float(ma_data.get('MA200'))
+        ma200_trend = ma_data.get('MA200_trend')
+        year_low = safe_float(stock.get('yearLow'))
 
-       if any(x is None or x <= 0 for x in [current_price, ma50, ma150, ma200, year_low]):
-           return False
+        if any(x is None or x <= 0 for x in [current_price, ma50, ma150, ma200, year_low]):
+            print(f"⚠️ {symbol} 일부 데이터 누락 또는 0 이하: price={current_price}, MA50={ma50}, MA150={ma150}, MA200={ma200}, yearLow={year_low}")
+            return False
 
-       conditions = [
-           current_price > ma150,  # 현재가 > 150MA
-           current_price > ma200,  # 현재가 > 200MA
-           ma150 > ma200,         # 150MA > 200MA
-           ma200_trend,           # 200MA 상승추세
-           ma50 > ma150,          # 50MA > 150MA
-           ma50 > ma200,          # 50MA > 200MA
-           current_price > ma50,   # 현재가 > 50MA
-           current_price > (year_low * 1.3)  # 저가대비 30% 이상
-       ]
-       
-       return all(conditions)
-   except Exception as e:
-       print(f"⚠️ {stock.get('symbol')} 기술적 조건 확인 중 오류 발생: {e}")
-       return False
+        conditions = {
+            'current_price > ma150': current_price > ma150,
+            'current_price > ma200': current_price > ma200,
+            'ma150 > ma200': ma150 > ma200,
+            'ma200_trend': ma200_trend,
+            'ma50 > ma150': ma50 > ma150,
+            'ma50 > ma200': ma50 > ma200,
+            'current_price > ma50': current_price > ma50,
+            'current_price > year_low*1.3': current_price > (year_low * 1.3)
+        }
+
+        # 각 조건의 결과를 출력
+        if not all(conditions.values()):
+            failed_conditions = [name for name, result in conditions.items() if not result]
+            print(f"❌ {symbol} 불만족 조건들: {', '.join(failed_conditions)}")
+            print(f"   현재가: {current_price}, MA50: {ma50}, MA150: {ma150}, MA200: {ma200}")
+            print(f"   52주 저가: {year_low}, 저가의 130%: {year_low * 1.3}")
+            return False
+        
+        print(f"✅ {symbol} 모든 기술적 조건 만족")
+        return True
+
+    except Exception as e:
+        print(f"⚠️ {stock.get('symbol')} 기술적 조건 확인 중 오류 발생: {e}")
+        return False
+
 def filter_stocks(stocks):
     """주식 필터링"""
     print("\n🔎 필터링 시작...")
