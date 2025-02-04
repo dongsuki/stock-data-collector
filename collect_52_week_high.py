@@ -9,61 +9,70 @@ AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3ade
 AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
-def get_tradable_stocks():
-    """거래 가능한 모든 주식 목록 조회"""
-    url = f"https://financialmodelingprep.com/api/v3/available-traded/list?apikey={FMP_API_KEY}"
-    response = requests.get(url)
-    return response.json() if response.status_code == 200 else []
 
-def get_stock_quote(symbol):
-    """실시간 주가 정보 조회"""
-    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_API_KEY}"
-    response = requests.get(url)
-    return response.json()[0] if response.status_code == 200 and response.json() else None
+def get_all_quotes():
+    """모든 주식 데이터 한 번에 가져오기"""
+    print("데이터 수집 시작...")
+    url = f"https://financialmodelingprep.com/api/v3/quotes/index?apikey={FMP_API_KEY}"
+    
+    try:
+        response = requests.get(url, timeout=30)  # 30초 타임아웃 설정
+        if response.status_code == 200:
+            data = response.json()
+            print(f"총 {len(data)}개 종목 데이터 수집 완료")
+            return data
+        else:
+            print(f"API 요청 실패: {response.status_code}")
+            return []
+    except requests.Timeout:
+        print("API 요청 시간 초과")
+        return []
+    except Exception as e:
+        print(f"데이터 수집 중 에러 발생: {str(e)}")
+        return []
 
 def filter_stocks(stocks):
     """주식 필터링"""
+    print("필터링 시작...")
     filtered = []
+    count = 0
     
     for stock in stocks:
-        symbol = stock['symbol']
-        quote = get_stock_quote(symbol)
-        
-        if not quote:
-            continue
-            
-        price = float(quote.get('price', 0))
-        volume = int(quote.get('volume', 0))
-        yearHigh = float(quote.get('yearHigh', 0))
-        marketCap = float(quote.get('marketCap', 0))
+        price = float(stock.get('price', 0))
+        volume = int(stock.get('volume', 0))
+        yearHigh = float(stock.get('yearHigh', 0))
+        marketCap = float(stock.get('marketCap', 0))
         
         if (price >= 10 and 
             volume >= 1000000 and 
             marketCap >= 500000000 and 
             price > yearHigh):  # 52주 신고가 돌파
             
-            filtered_stock = {
-                'symbol': symbol,
+            filtered.append({
+                'symbol': stock.get('symbol'),
                 'price': price,
                 'volume': volume,
                 'yearHigh': yearHigh,
                 'marketCap': marketCap,
-                'name': quote.get('name', ''),
-                'exchange': quote.get('exchange', '')
-            }
-            filtered.append(filtered_stock)
-            print(f"조건 만족: {symbol} (현재가: ${price:,.2f}, 52주 고가: ${yearHigh:,.2f})")
-        
-        time.sleep(0.1)  # API 속도 제한 고려
+                'name': stock.get('name', ''),
+                'exchange': stock.get('exchange', '')
+            })
+            
+            count += 1
+            if count % 10 == 0:  # 10개마다 진행상황 출력
+                print(f"조건 만족 종목 수: {count}개")
     
-    return sorted(filtered, key=lambda x: x['yearHigh'], reverse=True)
+    filtered = sorted(filtered, key=lambda x: x['yearHigh'], reverse=True)
+    print(f"\n총 {len(filtered)}개 종목이 조건을 만족")
+    return filtered
 
 def update_airtable(stocks):
     """Airtable 업데이트"""
+    print("\nAirtable 업데이트 시작...")
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
     
-    for stock in stocks:
+    for i, stock in enumerate(stocks, 1):
         record = {
             '티커': stock['symbol'],
             '종목명': stock['name'],
@@ -76,32 +85,35 @@ def update_airtable(stocks):
             '거래소 정보': stock['exchange']
         }
         
-        airtable.insert(record)
-        print(f"Airtable 데이터 추가: {stock['symbol']}")
-        time.sleep(0.2)
+        try:
+            airtable.insert(record)
+            print(f"[{i}/{len(stocks)}] {stock['symbol']} 추가 완료")
+            time.sleep(0.2)  # API 속도 제한 고려
+        except Exception as e:
+            print(f"Airtable 업데이트 실패 ({stock['symbol']}): {str(e)}")
 
 def main():
-    print("데이터 수집 시작...")
+    print("프로그램 시작...")
     print("필터링 조건:")
     print("- 현재가 >= $10")
     print("- 거래량 >= 1,000,000주")
     print("- 시가총액 >= $500,000,000")
     print("- 현재가 > 52주 신고가")
     
-    stocks = get_tradable_stocks()
+    start_time = time.time()
+    
+    stocks = get_all_quotes()
     if not stocks:
         print("데이터 수집 실패")
         return
-        
-    print(f"\n총 {len(stocks)}개 종목 데이터 수집됨")
     
     filtered_stocks = filter_stocks(stocks)
-    print(f"\n조건을 만족하는 종목 수: {len(filtered_stocks)}개")
     
     if filtered_stocks:
         update_airtable(filtered_stocks)
     
-    print("\n처리 완플렷!")
+    end_time = time.time()
+    print(f"\n처리 완료! (소요시간: {end_time - start_time:.2f}초)")
 
 if __name__ == "__main__":
     main()
