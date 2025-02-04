@@ -45,47 +45,6 @@ def get_tradable_stocks():
     return set()
 
 
-def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
-    """실제 거래 가능한 미국 주식인지 확인"""
-    symbol = stock.get('symbol', '')
-    exchange = stock.get('exchange', '')
-    type = stock.get('type', '').lower()
-    name = stock.get('name', '').lower()
-    volume = safe_float(stock.get('volume'))
-    price = safe_float(stock.get('price'))
-
-    # ✅ 1. 기본 제외 조건 (ETF 및 비미국 거래소)
-    if 'etf' in type:
-        return False
-    if exchange not in {'NYSE', 'NASDAQ'}:
-        return False
-
-    # ✅ 2. 상장폐지 종목 필터링 (FMP API 활용)
-    if symbol in delisted_stocks:
-        return False  # FMP API에서 상장폐지된 종목으로 확인됨
-
-    # ✅ 3. 현재 거래 가능한 종목 필터링 (FMP API 활용)
-    if symbol not in tradable_stocks:
-        return False  # FMP API에서 현재 거래되지 않는 종목으로 확인됨
-
-    # ✅ 4. 특수 증권 관련 키워드 체크
-    invalid_keywords = [
-        'warrant', 'warrants', 'adr', 'preferred', 'acquisition',
-        'right', 'rights', 'merger', 'spac', 'trust', 'unit',
-        'notes', 'bond', 'series', 'class',
-        'holding', 'holdings', 'fund', 'partners', 'management'
-    ]
-    if any(keyword in name.lower() for keyword in invalid_keywords):
-        return False
-
-    # ✅ 5. 거래 활성도 체크 (여전히 유효)
-    min_daily_dollar_volume = 1000000  # 최소 100만 달러 거래대금
-    if price * volume < min_daily_dollar_volume:
-        return False
-
-    return True
-
-
 def get_quotes():
     """미국 주식 데이터 가져오기"""
     print("📡 데이터 수집 시작...")
@@ -116,6 +75,48 @@ def get_quotes():
     return all_stocks
 
 
+def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
+    """실제 거래 가능한 미국 주식인지 확인"""
+    symbol = stock.get('symbol', '')
+    exchange = stock.get('exchange', '')
+    type = stock.get('type', '').lower()
+    name = stock.get('name', '') or ''  # None 방지
+    name = name.lower()
+    volume = safe_float(stock.get('volume'))
+    price = safe_float(stock.get('price'))
+
+    # ✅ 1. 기본 제외 조건 (ETF 및 비미국 거래소)
+    if 'etf' in type:
+        return False
+    if exchange not in {'NYSE', 'NASDAQ'}:
+        return False
+
+    # ✅ 2. 상장폐지 종목 필터링
+    if symbol in delisted_stocks:
+        return False
+
+    # ✅ 3. 현재 거래 가능한 종목 필터링
+    if symbol not in tradable_stocks:
+        return False
+
+    # ✅ 4. 특수 증권 관련 키워드 체크
+    invalid_keywords = [
+        'warrant', 'warrants', 'adr', 'preferred', 'acquisition',
+        'right', 'rights', 'merger', 'spac', 'trust', 'unit',
+        'notes', 'bond', 'series', 'class',
+        'holding', 'holdings', 'fund', 'partners', 'management'
+    ]
+    if any(keyword in name for keyword in invalid_keywords):
+        return False
+
+    # ✅ 5. 거래 활성도 체크
+    min_daily_dollar_volume = 1000000  # 최소 100만 달러 거래대금
+    if price * volume < min_daily_dollar_volume:
+        return False
+
+    return True
+
+
 def filter_stocks(stocks):
     """주식 필터링"""
     print("\n🔎 필터링 시작...")
@@ -141,41 +142,19 @@ def filter_stocks(stocks):
 
         if price >= 10 and volume >= 1000000 and marketCap >= 500000000 and price_to_high_ratio >= 95:
             filtered.append({
-                'symbol': stock.get('symbol'),
+                'symbol': stock['symbol'],
                 'price': price,
                 'volume': volume,
                 'yearHigh': yearHigh,
                 'marketCap': marketCap,
-                'name': stock.get('name', ''),
-                'exchange': stock.get('exchange', ''),
+                'name': stock['name'],
+                'exchange': stock['exchange'],
                 'price_to_high_ratio': price_to_high_ratio,
                 'change_percent': change_percent
             })
 
     print(f"✅ 조건 만족 종목: {len(filtered)}개")
     return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
-
-
-def update_airtable(stocks):
-    """Airtable에 새 레코드 추가"""
-    print("\n📡 Airtable 업데이트 시작...")
-    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
-    current_date = datetime.now().strftime("%Y-%m-%d")
-
-    for stock in stocks:
-        record = {
-            '티커': stock['symbol'],
-            '종목명': stock['name'],
-            '현재가': stock['price'],
-            '등락률': stock['change_percent'],
-            '거래량': stock['volume'],
-            '시가총액': stock['marketCap'],
-            '업데이트 시간': current_date,
-            '분류': "52주_신고가_근접",
-            '거래소 정보': stock['exchange'],
-            '신고가 비율(%)': stock['price_to_high_ratio']
-        }
-        airtable.insert(record)
 
 
 def main():
