@@ -25,9 +25,9 @@ jobs:
         pip install airtable-python-wrapper
         pip install pytz
     
-    - name: collect_52_week_high.py
+    - name: ccollect_52_week_high_tec.py
       env:
         POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }} 
         AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./collect_52_week_high.py
+      run: python ./collect_52_week_high_tec.py
