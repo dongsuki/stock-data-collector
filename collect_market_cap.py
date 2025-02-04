@@ -18,61 +18,54 @@ def safe_float(value, default=0.0):
     except (ValueError, TypeError):
         return default
 
-def get_all_quotes():
-    """모든 주식 데이터 한 번에 가져오기"""
+def get_quotes():
+    """미국 주식 데이터 가져오기"""
     print("데이터 수집 시작...")
-    
-    # 미국 주식 전체 시세 데이터를 가져옵니다
-    url = f"https://financialmodelingprep.com/api/v3/quotes/nasdaq?apikey={FMP_API_KEY}"
+    url = f"https://financialmodelingprep.com/api/v3/quotes/nyse?apikey={FMP_API_KEY}"
     
     try:
-        stocks = []
+        response = requests.get(url)
+        nyse_stocks = response.json() if response.status_code == 200 else []
+        print(f"NYSE 종목 수집: {len(nyse_stocks)}개")
         
-        # NASDAQ 데이터
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            stocks.extend(response.json())
-            
-        # NYSE 데이터    
-        url = f"https://financialmodelingprep.com/api/v3/quotes/nyse?apikey={FMP_API_KEY}"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            stocks.extend(response.json())
-            
-        print(f"\n수집된 종목 수: {len(stocks)}개")
+        # 첫 번째 종목 데이터 출력
+        if nyse_stocks:
+            print("\nNYSE 샘플 데이터:")
+            print(nyse_stocks[0])
         
-        if stocks:
-            # 첫 번째 종목의 모든 필드 출력
-            print("\n첫 번째 종목 데이터 구조:")
-            first_stock = stocks[0]
-            for key, value in first_stock.items():
-                print(f"{key}: {value}")
-                
-        return stocks
+        # NASDAQ 데이터 가져오기
+        url = f"https://financialmodelingprep.com/api/v3/quotes/nasdaq?apikey={FMP_API_KEY}"
+        response = requests.get(url)
+        nasdaq_stocks = response.json() if response.status_code == 200 else []
+        print(f"NASDAQ 종목 수집: {len(nasdaq_stocks)}개")
+        
+        all_stocks = nyse_stocks + nasdaq_stocks
+        print(f"총 수집 종목 수: {len(all_stocks)}개")
+        return all_stocks
+        
     except Exception as e:
-        print(f"데이터 수집 중 에러 발생: {str(e)}")
+        print(f"데이터 수집 중 에러: {str(e)}")
         return []
 
 def filter_stocks(stocks):
     """주식 필터링"""
     print("\n필터링 시작...")
-    print(f"필터링 전 종목 수: {len(stocks)}개")
     filtered = []
-    failed = 0
+    invalid_count = 0
     
     for stock in stocks:
         try:
-            price = safe_float(stock.get('price'))
-            volume = safe_float(stock.get('volume'))
-            yearHigh = safe_float(stock.get('yearHigh'))
-            marketCap = safe_float(stock.get('marketCap'))
+            price = float(stock.get('price', 0))
+            volume = float(stock.get('volume', 0))
+            yearHigh = float(stock.get('yearHigh', 0))
+            marketCap = float(stock.get('marketCap', 0))
             
             # 데이터 유효성 검사
-            if price == 0 or yearHigh == 0:
-                failed += 1
+            if price <= 0 or yearHigh <= 0:
+                invalid_count += 1
                 continue
-
-            # 52주 고가 대비 현재가 비율 계산
+                
+            # 52주 고가 대비 현재가 비율
             price_to_high_ratio = (price / yearHigh) * 100
             
             if (price >= 10 and 
@@ -92,21 +85,20 @@ def filter_stocks(stocks):
                 })
                 
                 print(f"\n조건 만족: {stock.get('symbol')}")
-                print(f"현재가: ${price:,.2f}")
+                print(f"가격: ${price:,.2f}")
                 print(f"거래량: {volume:,.0f}")
                 print(f"52주 고가: ${yearHigh:,.2f}")
                 print(f"시가총액: ${marketCap:,.2f}")
-                print(f"52주 고가 대비: {price_to_high_ratio:.1f}%")
-            
+                print(f"고가대비: {price_to_high_ratio:.1f}%")
+                
         except Exception as e:
-            failed += 1
-            print(f"처리 중 에러 발생 ({stock.get('symbol', 'Unknown')}): {str(e)}")
+            invalid_count += 1
             continue
     
-    print(f"\n데이터 처리 실패: {failed}개 종목")
-    filtered = sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
-    print(f"조건 만족: {len(filtered)}개 종목")
-    return filtered
+    print(f"\n유효하지 않은 데이터: {invalid_count}개")
+    print(f"조건 만족 종목: {len(filtered)}개")
+    
+    return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
 
 def update_airtable(stocks):
     """Airtable 업데이트"""
@@ -120,7 +112,7 @@ def update_airtable(stocks):
                 '티커': stock['symbol'],
                 '종목명': stock['name'],
                 '현재가': stock['price'],
-                '등락률': stock['price_to_high_ratio'] - 100,  # 52주 고가 대비 등락률
+                '등락률': stock['price_to_high_ratio'] - 100,
                 '거래량': stock['volume'],
                 '시가총액': stock['marketCap'],
                 '업데이트 시간': current_date,
@@ -141,10 +133,9 @@ def main():
     print("- 거래량 >= 1,000,000주")
     print("- 시가총액 >= $500,000,000")
     print("- 현재가가 52주 고가의 95% 이상")
-    print("- 미국 거래소 상장 종목만")
     
     start_time = time.time()
-    stocks = get_all_quotes()
+    stocks = get_quotes()
     
     if not stocks:
         print("데이터 수집 실패")
