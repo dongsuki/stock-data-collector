@@ -147,7 +147,8 @@ def get_moving_averages(symbol):
         periods = [50, 150, 200]
         for period in periods:
             rate_limiter.wait_if_needed()
-            url = f"https://financialmodelingprep.com/api/v3/technical_indicator/daily/{symbol}?type=sma&period={period}&apikey={FMP_API_KEY}"
+            # URL 수정
+            url = f"https://financialmodelingprep.com/api/v3/technical_indicator/1day/{symbol}?period={period}&type=sma&apikey={FMP_API_KEY}"
             response = requests.get(url, timeout=30)
             
             if response.status_code == 429:
@@ -157,45 +158,29 @@ def get_moving_averages(symbol):
                 
             if response.status_code == 200:
                 data = response.json()
-                if data:
-                    ma_value = data[0].get('value')
-                    ma_key = f'MA{period}'
-                    ma_data[ma_key] = ma_value
+                if data and len(data) > 0:
+                    # 데이터 유효성 검사 추가
+                    ma_value = safe_float(data[0].get('value'))
+                    if ma_value > 0:  # 유효한 값만 저장
+                        ma_key = f'MA{period}'
+                        ma_data[ma_key] = ma_value
 
-                    if period == 200:
-                        month_ago_value = data[20].get('value') if len(data) > 20 else None
-                        if month_ago_value:
-                            ma_data['MA200_trend'] = ma_value > month_ago_value
+                        if period == 200 and len(data) >= 21:  # 충분한 데이터가 있는지 확인
+                            month_ago_value = safe_float(data[20].get('value'))
+                            if month_ago_value > 0:
+                                ma_data['MA200_trend'] = ma_value > month_ago_value
+            else:
+                print(f"⚠️ {symbol} {period}일 이평선 데이터 가져오기 실패: {response.status_code}")
 
     except Exception as e:
         print(f"❌ {symbol} 이평선 데이터 가져오기 실패: {str(e)}")
 
+    # 모든 필요한 데이터가 있는지 확인
+    if not all(ma_data.values()):
+        print(f"⚠️ {symbol} 일부 이평선 데이터 누락")
+        return None
+
     return ma_data
-
-def check_technical_conditions(stock, ma_data):
-    """기술적 조건 확인"""
-    if not all(ma_data.get(key) for key in ['MA50', 'MA150', 'MA200']):
-        return False
-
-    current_price = safe_float(stock.get('price'))
-    ma50 = safe_float(ma_data.get('MA50'))
-    ma150 = safe_float(ma_data.get('MA150'))
-    ma200 = safe_float(ma_data.get('MA200'))
-    ma200_trend = ma_data.get('MA200_trend')
-    year_low = safe_float(stock.get('yearLow'))
-    year_high = safe_float(stock.get('yearHigh'))
-
-    return all([
-        current_price > ma150,  # 현재가 > 150MA
-        current_price > ma200,  # 현재가 > 200MA
-        ma150 > ma200,         # 150MA > 200MA
-        ma200_trend,           # 200MA 상승추세
-        ma50 > ma150,          # 50MA > 150MA
-        ma50 > ma200,          # 50MA > 200MA
-        current_price > ma50,  # 현재가 > 50MA
-        current_price > (year_low * 1.3),  # 저가대비 30% 이상
-        current_price > (year_high * 0.75)  # 신고가대비 75% 이상
-    ])
 
 def filter_stocks(stocks):
     """주식 필터링"""
@@ -206,7 +191,12 @@ def filter_stocks(stocks):
     tradable_stocks = get_tradable_stocks()
     
     filtered = []
+    processed = 0
     for stock in stocks:
+        processed += 1
+        if processed % 100 == 0:
+            print(f"진행 중: {processed}/{len(stocks)} 종목 처리됨")
+
         if not is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
             continue
             
@@ -215,13 +205,19 @@ def filter_stocks(stocks):
         yearHigh = safe_float(stock.get('yearHigh'))
         marketCap = safe_float(stock.get('marketCap'))
         
-        price_to_high_ratio = (price / yearHigh) * 100 if yearHigh else 0
+        # 가격이 0이거나 거래량이 없는 경우 제외
+        if price <= 0 or volume <= 0 or yearHigh <= 0:
+            continue
+
+        price_to_high_ratio = (price / yearHigh) * 100
         
         if not (price >= 10 and volume >= 1000000 and marketCap >= 500000000 and price_to_high_ratio >= 95):
             continue
             
         ma_data = get_moving_averages(stock['symbol'])
-        
+        if ma_data is None:  # 이평선 데이터 누락된 경우 스킵
+            continue
+
         if check_technical_conditions(stock, ma_data):
             change_percent = ((price - safe_float(stock.get('previousClose'))) / 
                             safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
@@ -237,6 +233,7 @@ def filter_stocks(stocks):
                 'price_to_high_ratio': price_to_high_ratio,
                 'change_percent': change_percent
             })
+            print(f"✅ 조건 만족 종목 발견: {stock['symbol']}")
 
     print(f"✅ 모든 조건 만족 종목: {len(filtered)}개")
     return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
