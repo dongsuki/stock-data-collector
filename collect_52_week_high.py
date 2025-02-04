@@ -85,31 +85,33 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     volume = safe_float(stock.get('volume'))
     price = safe_float(stock.get('price'))
 
-    # ✅ 1. 기본 제외 조건 (ETF 및 비미국 거래소)
-    if 'etf' in type:
+    # ✅ 1. ETF 제외 (ETF 관련 키워드 포함된 경우)
+    etf_keywords = ['etf', 'trust', 'fund']
+    if 'etf' in type or any(keyword in name for keyword in etf_keywords):
         return False
+
+    # ✅ 2. NYSE/NASDAQ이 아닌 경우 제외
     if exchange not in {'NYSE', 'NASDAQ'}:
         return False
 
-    # ✅ 2. 상장폐지 종목 필터링
+    # ✅ 3. 상장폐지 종목 필터링
     if symbol in delisted_stocks:
         return False
 
-    # ✅ 3. 현재 거래 가능한 종목 필터링
+    # ✅ 4. 현재 거래 가능한 종목 필터링
     if symbol not in tradable_stocks:
         return False
 
-    # ✅ 4. 특수 증권 관련 키워드 체크
+    # ✅ 5. 특수 증권 관련 키워드 체크
     invalid_keywords = [
         'warrant', 'warrants', 'adr', 'preferred', 'acquisition',
-        'right', 'rights', 'merger', 'spac', 'trust', 'unit',
-        'notes', 'bond', 'series', 'class',
-        'holding', 'holdings', 'fund', 'partners', 'management'
+        'right', 'rights', 'merger', 'spac', 'unit', 'notes',
+        'bond', 'series', 'class', 'holding', 'holdings', 'partners', 'management'
     ]
     if any(keyword in name for keyword in invalid_keywords):
         return False
 
-    # ✅ 5. 거래 활성도 체크
+    # ✅ 6. 거래 활성도 체크
     min_daily_dollar_volume = 1000000  # 최소 100만 달러 거래대금
     if price * volume < min_daily_dollar_volume:
         return False
