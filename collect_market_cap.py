@@ -4,13 +4,13 @@ from datetime import datetime
 from airtable import Airtable
 import time
 
-FMP_API_KEY = "YOUR_API_KEY"
-AIRTABLE_API_KEY = "YOUR_AIRTABLE_API_KEY" 
-AIRTABLE_BASE_ID = "YOUR_BASE_ID"
+# API 설정
+FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
+AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
+AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
 def safe_float(value, default=0.0):
-    """안전하게 float로 변환"""
     try:
         if value is None:
             return default
@@ -18,35 +18,37 @@ def safe_float(value, default=0.0):
     except (ValueError, TypeError):
         return default
 
-def is_us_exchange(exchange):
-    """미국 거래소인지 확인"""
-    return exchange in {'NYSE', 'NASDAQ', 'AMEX'}
-
 def get_all_quotes():
     """모든 주식 데이터 한 번에 가져오기"""
     print("데이터 수집 시작...")
-    url = f"https://financialmodelingprep.com/api/v3/quotes/index?apikey={FMP_API_KEY}"
+    
+    # 미국 주식 전체 시세 데이터를 가져옵니다
+    url = f"https://financialmodelingprep.com/api/v3/quotes/nasdaq?apikey={FMP_API_KEY}"
     
     try:
-        response = requests.get(url, timeout=30)
+        stocks = []
         
+        # NASDAQ 데이터
+        response = requests.get(url, timeout=30)
         if response.status_code == 200:
-            stocks = response.json()
-            # 샘플 데이터 출력
-            if stocks:
-                print("\n첫 번째 데이터 샘플:")
-                print(stocks[0])
+            stocks.extend(response.json())
             
-            # 미국 거래소 종목만 필터링
-            us_stocks = [stock for stock in stocks if is_us_exchange(stock.get('exchange', ''))]
-            print(f"\n미국 상장 종목 수: {len(us_stocks)}개")
+        # NYSE 데이터    
+        url = f"https://financialmodelingprep.com/api/v3/quotes/nyse?apikey={FMP_API_KEY}"
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            stocks.extend(response.json())
             
-            return us_stocks
-        else:
-            print(f"API 요청 실패: {response.status_code}")
-            if response.text:
-                print(f"에러 메시지: {response.text}")
-            return []
+        print(f"\n수집된 종목 수: {len(stocks)}개")
+        
+        if stocks:
+            # 첫 번째 종목의 모든 필드 출력
+            print("\n첫 번째 종목 데이터 구조:")
+            first_stock = stocks[0]
+            for key, value in first_stock.items():
+                print(f"{key}: {value}")
+                
+        return stocks
     except Exception as e:
         print(f"데이터 수집 중 에러 발생: {str(e)}")
         return []
@@ -56,23 +58,23 @@ def filter_stocks(stocks):
     print("\n필터링 시작...")
     print(f"필터링 전 종목 수: {len(stocks)}개")
     filtered = []
+    failed = 0
     
     for stock in stocks:
         try:
-            # 필요한 데이터 추출
             price = safe_float(stock.get('price'))
             volume = safe_float(stock.get('volume'))
             yearHigh = safe_float(stock.get('yearHigh'))
             marketCap = safe_float(stock.get('marketCap'))
             
-            # 모든 필수 데이터가 있는지 확인
-            if not all([price, volume, yearHigh, marketCap]):
+            # 데이터 유효성 검사
+            if price == 0 or yearHigh == 0:
+                failed += 1
                 continue
 
             # 52주 고가 대비 현재가 비율 계산
-            price_to_high_ratio = (price / yearHigh) * 100 if yearHigh > 0 else 0
+            price_to_high_ratio = (price / yearHigh) * 100
             
-            # 조건 체크
             if (price >= 10 and 
                 volume >= 1000000 and 
                 marketCap >= 500000000 and 
@@ -97,12 +99,13 @@ def filter_stocks(stocks):
                 print(f"52주 고가 대비: {price_to_high_ratio:.1f}%")
             
         except Exception as e:
+            failed += 1
             print(f"처리 중 에러 발생 ({stock.get('symbol', 'Unknown')}): {str(e)}")
             continue
     
-    # 52주 고가 대비 비율로 정렬
+    print(f"\n데이터 처리 실패: {failed}개 종목")
     filtered = sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
-    print(f"\n총 {len(filtered)}개 종목이 조건을 만족")
+    print(f"조건 만족: {len(filtered)}개 종목")
     return filtered
 
 def update_airtable(stocks):
