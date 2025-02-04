@@ -118,26 +118,57 @@ def get_quotes():
 def get_historical_data(symbol):
     """주가 히스토리 데이터 가져오기"""
     rate_limiter.wait_if_needed()
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_API_KEY}"
-    try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 429:
-            print(f"⚠️ API 호출 한도 초과, 잠시 대기 후 재시도...")
-            time.sleep(5)
-            return get_historical_data(symbol)
-            
-        if response.status_code == 200:
-            data = response.json()
-            if 'historical' in data:
-                # 날짜순으로 정렬 (최신 데이터가 앞에 오도록)
-                historical_data = sorted(data['historical'], 
-                                      key=lambda x: x['date'], 
-                                      reverse=True)
-                return historical_data
-    except Exception as e:
-        print(f"❌ {symbol} 주가 히스토리 데이터 가져오기 실패: {str(e)}")
-    return None
+    max_retries = 3
+    retry_delay = 2
 
+    for attempt in range(max_retries):
+        try:
+            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_API_KEY}"
+            response = requests.get(url, timeout=30)
+            
+            # API 호출 한도 초과 시 재시도
+            if response.status_code == 429:
+                print(f"⚠️ {symbol}: API 호출 한도 초과, {retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # 다음 재시도까지 대기 시간 증가
+                continue
+                
+            if response.status_code == 200:
+                data = response.json()
+                if 'historical' in data and data['historical']:
+                    historical_data = data['historical']
+                    
+                    # 데이터가 충분한지 확인
+                    if len(historical_data) < 200:
+                        print(f"⚠️ {symbol}: 충분한 히스토리 데이터 없음 (필요: 200일, 실제: {len(historical_data)}일)")
+                        return None
+                    
+                    # 종가 데이터가 있는지 확인
+                    valid_data = [x for x in historical_data if 'close' in x and x['close'] is not None]
+                    if len(valid_data) < 200:
+                        print(f"⚠️ {symbol}: 유효한 종가 데이터 부족 (필요: 200일, 실제: {len(valid_data)}일)")
+                        return None
+                        
+                    # 날짜순 정렬 (최신 데이터가 앞에 오도록)
+                    return sorted(valid_data, key=lambda x: x['date'], reverse=True)
+                else:
+                    print(f"⚠️ {symbol}: 히스토리 데이터 없음")
+                    return None
+            else:
+                print(f"⚠️ {symbol}: API 응답 에러 (상태 코드: {response.status_code})")
+
+        except requests.exceptions.Timeout:
+            print(f"⚠️ {symbol}: 요청 시간 초과")
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ {symbol}: 요청 실패 - {str(e)}")
+        except Exception as e:
+            print(f"❌ {symbol}: 예상치 못한 에러 - {str(e)}")
+        
+        time.sleep(retry_delay)
+        retry_delay *= 2  # 다음 재시도까지 대기 시간 증가
+
+    return None
+    
 def calculate_moving_averages(historical_data):
     """이동평균선 계산"""
     if not historical_data or len(historical_data) < 200:
