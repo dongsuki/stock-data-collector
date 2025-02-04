@@ -11,17 +11,35 @@ AIRTABLE_BASE_ID = "appAh82iPV3cH6Xx5"
 TABLE_NAME = "미국주식 데이터"
 
 class APIRateLimiter:
-    def __init__(self, calls_per_minute):
+    def __init__(self, calls_per_minute=300):
         self.calls_per_minute = calls_per_minute
         self.min_interval = 60.0 / calls_per_minute
         self.last_call_time = 0
+        self.calls_made = 0
+        self.reset_time = time.time() + 60
 
     def wait_if_needed(self):
         current_time = time.time()
+        
+        # 1분이 지났으면 카운터 리셋
+        if current_time > self.reset_time:
+            self.calls_made = 0
+            self.reset_time = current_time + 60
+
+        # 호출 횟수가 제한에 도달하면 남은 시간만큼 대기
+        if self.calls_made >= self.calls_per_minute:
+            sleep_time = self.reset_time - current_time
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+                self.calls_made = 0
+                self.reset_time = time.time() + 60
+
         elapsed = current_time - self.last_call_time
         if elapsed < self.min_interval:
             time.sleep(self.min_interval - elapsed)
+            
         self.last_call_time = time.time()
+        self.calls_made += 1
 
 # Rate Limiter 초기화 (300 calls/minute)
 rate_limiter = APIRateLimiter(300)
@@ -111,36 +129,45 @@ def get_historical_data(symbol):
         if response.status_code == 200:
             data = response.json()
             if 'historical' in data:
-                return data['historical']
+                # 날짜순으로 정렬 (최신 데이터가 앞에 오도록)
+                historical_data = sorted(data['historical'], 
+                                      key=lambda x: x['date'], 
+                                      reverse=True)
+                return historical_data
     except Exception as e:
         print(f"❌ {symbol} 주가 히스토리 데이터 가져오기 실패: {str(e)}")
     return None
 
 def calculate_moving_averages(historical_data):
     """이동평균선 계산"""
-    if not historical_data or len(historical_data) < 200:  # 최소 200일치 데이터 필요
+    if not historical_data or len(historical_data) < 200:
         return None
         
-    # 종가 데이터 추출 (최신 순으로 정렬)
-    closes = [float(day['close']) for day in historical_data[:200]]
-    
-    if not closes:
+    closes = []
+    for day in historical_data:
+        try:
+            closes.append(float(day['close']))
+        except (ValueError, TypeError):
+            continue
+
+    if len(closes) < 200:
         return None
-        
-    ma_data = {
-        'MA50': sum(closes[:50]) / 50 if len(closes) >= 50 else None,
-        'MA150': sum(closes[:150]) / 150 if len(closes) >= 150 else None,
-        'MA200': sum(closes[:200]) / 200 if len(closes) >= 200 else None,
-        'MA200_trend': False
+
+    # 이동평균선 계산
+    ma50 = sum(closes[:50]) / 50
+    ma150 = sum(closes[:150]) / 150
+    ma200 = sum(closes[:200]) / 200
+
+    # 200일 이평선 추세 확인
+    ma200_prev = sum(closes[20:220]) / 200
+    ma200_trend = ma200 > ma200_prev
+
+    return {
+        'MA50': ma50,
+        'MA150': ma150,
+        'MA200': ma200,
+        'MA200_trend': ma200_trend
     }
-    
-    # 200일 이평선 추세 확인 (현재값이 한달 전보다 높은지)
-    if len(closes) >= 200:
-        current_ma200 = ma_data['MA200']
-        month_ago_ma200 = sum(closes[20:220]) / 200
-        ma_data['MA200_trend'] = current_ma200 > month_ago_ma200
-    
-    return ma_data
 
 def get_moving_averages(symbol):
     """종목의 이동평균선 데이터 가져오기"""
@@ -194,29 +221,33 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     return True
 
 def check_technical_conditions(stock, ma_data):
-    """기술적 조건 확인"""
-    if not all(ma_data.get(key) for key in ['MA50', 'MA150', 'MA200']):
-        return False
+   """기술적 조건 확인"""
+   try:
+       current_price = safe_float(stock.get('price'))
+       ma50 = safe_float(ma_data.get('MA50'))
+       ma150 = safe_float(ma_data.get('MA150'))
+       ma200 = safe_float(ma_data.get('MA200'))
+       ma200_trend = ma_data.get('MA200_trend')
+       year_low = safe_float(stock.get('yearLow'))
 
-    current_price = safe_float(stock.get('price'))
-    ma50 = safe_float(ma_data.get('MA50'))
-    ma150 = safe_float(ma_data.get('MA150'))
-    ma200 = safe_float(ma_data.get('MA200'))
-    ma200_trend = ma_data.get('MA200_trend')
-    year_low = safe_float(stock.get('yearLow'))
-    year_high = safe_float(stock.get('yearHigh'))
+       if any(x is None or x <= 0 for x in [current_price, ma50, ma150, ma200, year_low]):
+           return False
 
-    return all([
-        current_price > ma150,  # 현재가 > 150MA
-        current_price > ma200,  # 현재가 > 200MA
-        ma150 > ma200,         # 150MA > 200MA
-        ma200_trend,           # 200MA 상승추세
-        ma50 > ma150,          # 50MA > 150MA
-        ma50 > ma200,          # 50MA > 200MA
-        current_price > ma50,  # 현재가 > 50MA
-        current_price > (year_low * 1.3)  # 저가대비 30% 이상
-    ])
-
+       conditions = [
+           current_price > ma150,  # 현재가 > 150MA
+           current_price > ma200,  # 현재가 > 200MA
+           ma150 > ma200,         # 150MA > 200MA
+           ma200_trend,           # 200MA 상승추세
+           ma50 > ma150,          # 50MA > 150MA
+           ma50 > ma200,          # 50MA > 200MA
+           current_price > ma50,   # 현재가 > 50MA
+           current_price > (year_low * 1.3)  # 저가대비 30% 이상
+       ]
+       
+       return all(conditions)
+   except Exception as e:
+       print(f"⚠️ {stock.get('symbol')} 기술적 조건 확인 중 오류 발생: {e}")
+       return False
 def filter_stocks(stocks):
     """주식 필터링"""
     print("\n🔎 필터링 시작...")
@@ -240,7 +271,10 @@ def filter_stocks(stocks):
         yearHigh = safe_float(stock.get('yearHigh'))
         marketCap = safe_float(stock.get('marketCap'))
         
-        price_to_high_ratio = (price / yearHigh) * 100 if yearHigh else 0
+        try:
+            price_to_high_ratio = (price / yearHigh) * 100 if yearHigh and yearHigh > 0 else 0
+        except ZeroDivisionError:
+            continue
         
         if not (price >= 10 and volume >= 1000000 and marketCap >= 500000000 and price_to_high_ratio >= 95):
             continue
@@ -250,8 +284,11 @@ def filter_stocks(stocks):
             continue
         
         if check_technical_conditions(stock, ma_data):
-            change_percent = ((price - safe_float(stock.get('previousClose'))) / 
-                            safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
+            try:
+                change_percent = ((price - safe_float(stock.get('previousClose'))) / 
+                                safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
+            except ZeroDivisionError:
+                change_percent = 0
             
             filtered.append({
                 'symbol': stock['symbol'],
@@ -264,7 +301,7 @@ def filter_stocks(stocks):
                 'price_to_high_ratio': price_to_high_ratio,
                 'change_percent': change_percent
             })
-            print(f"✅ 조건 만족 종목 발견: {stock['symbol']}")
+            print(f"✅ 조건 만족 종목 발견: {stock['symbol']} (신고가대비: {price_to_high_ratio:.1f}%)")
 
     print(f"✅ 모든 조건 만족 종목: {len(filtered)}개")
     return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
