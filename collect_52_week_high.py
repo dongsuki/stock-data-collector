@@ -53,8 +53,6 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     name = stock.get('name', '').lower()
     volume = safe_float(stock.get('volume'))
     price = safe_float(stock.get('price'))
-    dayHigh = safe_float(stock.get('dayHigh'))
-    dayLow = safe_float(stock.get('dayLow'))
 
     # ✅ 1. 기본 제외 조건 (ETF 및 비미국 거래소)
     if 'etf' in type:
@@ -70,7 +68,7 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     if symbol not in tradable_stocks:
         return False  # FMP API에서 현재 거래되지 않는 종목으로 확인됨
 
-    # ✅ 4. 특수 증권 관련 키워드 체크 (여전히 유효)
+    # ✅ 4. 특수 증권 관련 키워드 체크
     invalid_keywords = [
         'warrant', 'warrants', 'adr', 'preferred', 'acquisition',
         'right', 'rights', 'merger', 'spac', 'trust', 'unit',
@@ -87,6 +85,37 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
 
     return True
 
+
+def get_quotes():
+    """미국 주식 데이터 가져오기"""
+    print("📡 데이터 수집 시작...")
+
+    # NASDAQ 데이터 수집
+    url_nasdaq = f"https://financialmodelingprep.com/api/v3/quotes/nasdaq?apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url_nasdaq, timeout=30)
+        nasdaq_stocks = response.json() if response.status_code == 200 else []
+        print(f"📌 NASDAQ 종목 수집 완료: {len(nasdaq_stocks)}개")
+    except Exception as e:
+        print(f"❌ NASDAQ 데이터 수집 실패: {str(e)}")
+        nasdaq_stocks = []
+
+    # NYSE 데이터 수집
+    url_nyse = f"https://financialmodelingprep.com/api/v3/quotes/nyse?apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url_nyse, timeout=30)
+        nyse_stocks = response.json() if response.status_code == 200 else []
+        print(f"📌 NYSE 종목 수집 완료: {len(nyse_stocks)}개")
+    except Exception as e:
+        print(f"❌ NYSE 데이터 수집 실패: {str(e)}")
+        nyse_stocks = []
+
+    all_stocks = nasdaq_stocks + nyse_stocks
+    print(f"✅ 총 수집 종목 수: {len(all_stocks)}개")
+
+    return all_stocks
+
+
 def filter_stocks(stocks):
     """주식 필터링"""
     print("\n🔎 필터링 시작...")
@@ -98,46 +127,32 @@ def filter_stocks(stocks):
     print(f"✅ 현재 거래 가능한 종목 수: {len(tradable_stocks)}개")
 
     filtered = []
-    invalid_count = 0
-
     for stock in stocks:
-        try:
-            if not is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
-                invalid_count += 1
-                continue
-
-            price = safe_float(stock.get('price'))
-            volume = safe_float(stock.get('volume'))
-            yearHigh = safe_float(stock.get('yearHigh'))
-            marketCap = safe_float(stock.get('marketCap'))
-
-            if price <= 0 or yearHigh <= 0:
-                invalid_count += 1
-                continue
-
-            price_to_high_ratio = (price / yearHigh) * 100
-            change_percent = ((price - safe_float(stock.get('previousClose'))) / safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
-
-            if price >= 10 and volume >= 1000000 and marketCap >= 500000000 and price_to_high_ratio >= 95:
-                filtered.append({
-                    'symbol': stock.get('symbol'),
-                    'price': price,
-                    'volume': volume,
-                    'yearHigh': yearHigh,
-                    'marketCap': marketCap,
-                    'name': stock.get('name', ''),
-                    'exchange': stock.get('exchange', ''),
-                    'price_to_high_ratio': price_to_high_ratio,
-                    'change_percent': change_percent
-                })
-
-        except Exception as e:
-            invalid_count += 1
+        if not is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
             continue
 
-    print(f"\n⚠ 유효하지 않은 데이터: {invalid_count}개")
-    print(f"✅ 조건 만족 종목: {len(filtered)}개")
+        price = safe_float(stock.get('price'))
+        volume = safe_float(stock.get('volume'))
+        yearHigh = safe_float(stock.get('yearHigh'))
+        marketCap = safe_float(stock.get('marketCap'))
 
+        price_to_high_ratio = (price / yearHigh) * 100
+        change_percent = ((price - safe_float(stock.get('previousClose'))) / safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
+
+        if price >= 10 and volume >= 1000000 and marketCap >= 500000000 and price_to_high_ratio >= 95:
+            filtered.append({
+                'symbol': stock.get('symbol'),
+                'price': price,
+                'volume': volume,
+                'yearHigh': yearHigh,
+                'marketCap': marketCap,
+                'name': stock.get('name', ''),
+                'exchange': stock.get('exchange', ''),
+                'price_to_high_ratio': price_to_high_ratio,
+                'change_percent': change_percent
+            })
+
+    print(f"✅ 조건 만족 종목: {len(filtered)}개")
     return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
 
 
@@ -147,42 +162,28 @@ def update_airtable(stocks):
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
 
-    for i, stock in enumerate(stocks, 1):
-        try:
-            record = {
-                '티커': stock['symbol'],
-                '종목명': stock['name'],
-                '현재가': stock['price'],
-                '등락률': stock['change_percent'],
-                '거래량': stock['volume'],
-                '시가총액': stock['marketCap'],
-                '업데이트 시간': current_date,
-                '분류': "52주_신고가_근접",
-                '거래소 정보': stock['exchange'],
-                '신고가 비율(%)': stock['price_to_high_ratio']
-            }
-
-            airtable.insert(record)
-            print(f"[{i}/{len(stocks)}] {stock['symbol']} ✅ 추가 완료")
-            time.sleep(0.2)
-
-        except Exception as e:
-            print(f"❌ Airtable 추가 실패 ({stock['symbol']}): {str(e)}")
+    for stock in stocks:
+        record = {
+            '티커': stock['symbol'],
+            '종목명': stock['name'],
+            '현재가': stock['price'],
+            '등락률': stock['change_percent'],
+            '거래량': stock['volume'],
+            '시가총액': stock['marketCap'],
+            '업데이트 시간': current_date,
+            '분류': "52주_신고가_근접",
+            '거래소 정보': stock['exchange'],
+            '신고가 비율(%)': stock['price_to_high_ratio']
+        }
+        airtable.insert(record)
 
 
 def main():
-    print("🚀 프로그램 시작...")
     stocks = get_quotes()
-    if not stocks:
-        print("❌ 데이터 수집 실패")
-        return
-
-    filtered_stocks = filter_stocks(stocks)
-
-    if filtered_stocks:
-        update_airtable(filtered_stocks)
-
-    print("\n🎯 처리 완료!")
+    if stocks:
+        filtered_stocks = filter_stocks(stocks)
+        if filtered_stocks:
+            update_airtable(filtered_stocks)
 
 
 if __name__ == "__main__":
