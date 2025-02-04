@@ -214,6 +214,7 @@ def check_technical_conditions(stock, ma_data):
         ma50 > ma150,          # 50MA > 150MA
         ma50 > ma200,          # 50MA > 200MA
         current_price > ma50,  # 현재가 > 50MA
+        current_price > (year_low * 1.3)  # 저가대비 30% 이상
     ])
 
 def filter_stocks(stocks):
