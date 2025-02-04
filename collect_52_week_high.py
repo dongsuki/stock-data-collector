@@ -157,6 +157,29 @@ def filter_stocks(stocks):
     return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
 
 
+def update_airtable(stocks):
+    """Airtable에 새 레코드 추가"""
+    print("\n📡 Airtable 업데이트 시작...")
+    airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
+    current_date = datetime.now().strftime("%Y-%m-%d")
+
+    for stock in stocks:
+        record = {
+            '티커': stock['symbol'],
+            '종목명': stock['name'],
+            '현재가': stock['price'],
+            '등락률': stock['change_percent'],
+            '거래량': stock['volume'],
+            '시가총액': stock['marketCap'],
+            '업데이트 시간': current_date,
+            '분류': "52주_신고가_근접",
+            '거래소 정보': stock['exchange'],
+            '신고가 비율(%)': stock['price_to_high_ratio']
+        }
+        airtable.insert(record)
+    print("✅ Airtable 업데이트 완료!")
+
+
 def main():
     stocks = get_quotes()
     if stocks:
