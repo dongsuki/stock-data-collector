@@ -182,16 +182,13 @@ def filter_stocks(stocks):
     return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
 
 def update_airtable(stocks):
-    """Airtable 업데이트"""
+    """Airtable에 새 레코드 추가"""
     print("\nAirtable 업데이트 시작...")
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
     
     for i, stock in enumerate(stocks, 1):
         try:
-            # 티커로 기존 레코드 검색
-            existing_records = airtable.search('티커', stock['symbol'])
-            
             record = {
                 '티커': stock['symbol'],
                 '종목명': stock['name'],
@@ -205,19 +202,13 @@ def update_airtable(stocks):
                 '신고가 비율(%)': stock['price_to_high_ratio']
             }
             
-            if existing_records:
-                # 기존 레코드가 있으면 업데이트
-                record_id = existing_records[0]['id']
-                airtable.update(record_id, record)
-                print(f"[{i}/{len(stocks)}] {stock['symbol']} 업데이트 완료")
-            else:
-                # 기존 레코드가 없으면 새로 추가
-                airtable.insert(record)
-                print(f"[{i}/{len(stocks)}] {stock['symbol']} 신규 추가")
-                
+            # 기존 데이터 검사 없이 항상 새로 추가
+            airtable.insert(record)
+            print(f"[{i}/{len(stocks)}] {stock['symbol']} 추가 완료")
             time.sleep(0.2)
+            
         except Exception as e:
-            print(f"Airtable 업데이트 실패 ({stock['symbol']}): {str(e)}")
+            print(f"Airtable 추가 실패 ({stock['symbol']}): {str(e)}")
 
 def main():
     print("프로그램 시작...")
