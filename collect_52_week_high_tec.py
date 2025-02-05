@@ -1,3 +1,5 @@
+52주 95% 이내 근접 신고가 + 미너비니 템플릿(RS강도 제외) 성공 코드 
+
 import os
 import requests
 from datetime import datetime
@@ -171,7 +173,7 @@ def get_historical_data(symbol):
     
 def calculate_moving_averages(historical_data):
     """이동평균선 계산"""
-    if not historical_data:
+    if not historical_data or len(historical_data) < 200:
         return None
         
     closes = []
@@ -181,74 +183,24 @@ def calculate_moving_averages(historical_data):
         except (ValueError, TypeError):
             continue
 
-    # 데이터 길이에 따른 조건부 계산
-    len_data = len(closes)
-    if len_data < 50:  # 최소 50일 데이터는 필요
+    if len(closes) < 200:
         return None
-        
-    ma_data = {
-        'MA50': sum(closes[:50]) / 50 if len_data >= 50 else None,
-        'MA150': sum(closes[:150]) / 150 if len_data >= 150 else None,
-        'MA200': sum(closes[:200]) / 200 if len_data >= 200 else None,
-        'MA200_trend': False,
-        'has_full_data': len_data >= 200  # 200일치 데이터 유무 표시
+
+    # 이동평균선 계산
+    ma50 = sum(closes[:50]) / 50
+    ma150 = sum(closes[:150]) / 150
+    ma200 = sum(closes[:200]) / 200
+
+    # 200일 이평선 추세 확인
+    ma200_prev = sum(closes[20:220]) / 200
+    ma200_trend = ma200 > ma200_prev
+
+    return {
+        'MA50': ma50,
+        'MA150': ma150,
+        'MA200': ma200,
+        'MA200_trend': ma200_trend
     }
-    
-    # 200일 데이터가 있는 경우만 추세 체크
-    if len_data >= 200:
-        ma200_current = ma_data['MA200']
-        ma200_prev = sum(closes[20:220]) / 200 if len_data >= 220 else None
-        ma_data['MA200_trend'] = ma200_current > ma200_prev if ma200_prev else False
-    
-    return ma_data
-
-def check_technical_conditions(stock, ma_data):
-    """기술적 조건 확인"""
-    try:
-        current_price = safe_float(stock.get('price'))
-        ma50 = safe_float(ma_data.get('MA50'))
-        ma150 = safe_float(ma_data.get('MA150'))
-        ma200 = safe_float(ma_data.get('MA200'))
-        ma200_trend = ma_data.get('MA200_trend')
-        has_full_data = ma_data.get('has_full_data', False)
-        year_low = safe_float(stock.get('yearLow'))
-
-        # 기본 필수 조건: 현재가, 50일선, 저가는 반드시 필요
-        if any(x is None or x <= 0 for x in [current_price, ma50, year_low]):
-            return False
-
-        # 200일 데이터가 있는 경우의 조건
-        if has_full_data:
-            conditions = [
-                current_price > ma150,  # 현재가 > 150MA
-                current_price > ma200,  # 현재가 > 200MA
-                ma150 > ma200,         # 150MA > 200MA
-                ma200_trend,           # 200MA 상승추세
-                ma50 > ma150,          # 50MA > 150MA
-                ma50 > ma200,          # 50MA > 200MA
-                current_price > ma50,  # 현재가 > 50MA
-                current_price > (year_low * 1.3)  # 저가대비 30% 이상
-            ]
-        # 200일 데이터가 없는 경우의 조건
-        else:
-            if ma150:  # 150일 데이터는 있는 경우
-                conditions = [
-                    current_price > ma150,  # 현재가 > 150MA
-                    ma50 > ma150,          # 50MA > 150MA
-                    current_price > ma50,   # 현재가 > 50MA
-                    current_price > (year_low * 1.3)  # 저가대비 30% 이상
-                ]
-            else:  # 50일 데이터만 있는 경우
-                conditions = [
-                    current_price > ma50,   # 현재가 > 50MA
-                    current_price > (year_low * 1.3)  # 저가대비 30% 이상
-                ]
-        
-        return all(conditions)
-
-    except Exception as e:
-        print(f"⚠️ {stock.get('symbol')} 기술적 조건 확인 중 오류 발생: {e}")
-        return False
 
 def get_moving_averages(symbol):
     """종목의 이동평균선 데이터 가져오기"""
