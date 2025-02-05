@@ -1,5 +1,3 @@
-52주 95% 이내 근접 신고가 + 미너비니 템플릿(RS강도 제외) 성공 코드 
-
 import os
 import requests
 from datetime import datetime
