@@ -1,8 +1,10 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from airtable import Airtable
 import time
+import numpy as np
+import pandas as pd
 
 # API 설정
 FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
@@ -20,13 +22,10 @@ class APIRateLimiter:
 
     def wait_if_needed(self):
         current_time = time.time()
-        
-        # 1분이 지났으면 카운터 리셋
         if current_time > self.reset_time:
             self.calls_made = 0
             self.reset_time = current_time + 60
 
-        # 호출 횟수가 제한에 도달하면 남은 시간만큼 대기
         if self.calls_made >= self.calls_per_minute:
             sleep_time = self.reset_time - current_time
             if sleep_time > 0:
@@ -41,11 +40,9 @@ class APIRateLimiter:
         self.last_call_time = time.time()
         self.calls_made += 1
 
-# Rate Limiter 초기화 (300 calls/minute)
 rate_limiter = APIRateLimiter(300)
 
 def safe_float(value, default=0.0):
-    """안전하게 float로 변환"""
     try:
         if value is None:
             return default
@@ -54,7 +51,6 @@ def safe_float(value, default=0.0):
         return default
 
 def get_delisted_stocks():
-    """FMP API에서 상장폐지된 종목 목록 가져오기"""
     rate_limiter.wait_if_needed()
     url = f"https://financialmodelingprep.com/api/v3/delisted-companies?apikey={FMP_API_KEY}"
     try:
@@ -70,7 +66,6 @@ def get_delisted_stocks():
     return set()
 
 def get_tradable_stocks():
-    """현재 거래 가능한 종목 목록 가져오기"""
     rate_limiter.wait_if_needed()
     url = f"https://financialmodelingprep.com/api/v3/available-traded/list?apikey={FMP_API_KEY}"
     try:
@@ -85,38 +80,7 @@ def get_tradable_stocks():
         print(f"❌ 거래 가능한 종목 데이터 가져오기 실패: {str(e)}")
     return set()
 
-def get_quotes():
-    """미국 주식 데이터 가져오기"""
-    print("📡 데이터 수집 시작...")
-
-    def fetch_exchange_data(exchange):
-        rate_limiter.wait_if_needed()
-        try:
-            url = f"https://financialmodelingprep.com/api/v3/quotes/{exchange}?apikey={FMP_API_KEY}"
-            response = requests.get(url, timeout=30)
-            if response.status_code == 200:
-                data = response.json()
-                print(f"📌 {exchange} 종목 수집 완료: {len(data)}개")
-                return data
-            elif response.status_code == 429:
-                print("⚠️ API 호출 한도 초과, 잠시 대기 후 재시도...")
-                time.sleep(5)
-                return fetch_exchange_data(exchange)
-            else:
-                print(f"⚠️ {exchange} API 응답 에러: {response.status_code}")
-        except Exception as e:
-            print(f"❌ {exchange} 데이터 수집 실패: {str(e)}")
-        return []
-
-    nasdaq_stocks = fetch_exchange_data("NASDAQ")
-    nyse_stocks = fetch_exchange_data("NYSE")
-    
-    all_stocks = nasdaq_stocks + nyse_stocks
-    print(f"✅ 총 수집 종목 수: {len(all_stocks)}개")
-    return all_stocks
-
 def get_historical_data(symbol):
-    """주가 히스토리 데이터 가져오기"""
     rate_limiter.wait_if_needed()
     max_retries = 3
     retry_delay = 2
@@ -126,93 +90,75 @@ def get_historical_data(symbol):
             url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_API_KEY}"
             response = requests.get(url, timeout=30)
             
-            # API 호출 한도 초과 시 재시도
             if response.status_code == 429:
                 print(f"⚠️ {symbol}: API 호출 한도 초과, {retry_delay}초 후 재시도...")
                 time.sleep(retry_delay)
-                retry_delay *= 2  # 다음 재시도까지 대기 시간 증가
+                retry_delay *= 2
                 continue
                 
             if response.status_code == 200:
                 data = response.json()
                 if 'historical' in data and data['historical']:
                     historical_data = data['historical']
-                    
-                    # 데이터가 충분한지 확인
-                    if len(historical_data) < 200:
-                        print(f"⚠️ {symbol}: 충분한 히스토리 데이터 없음 (필요: 200일, 실제: {len(historical_data)}일)")
+                    if len(historical_data) < 252:  # RS 계산을 위해 1년치 데이터 필요
                         return None
-                    
-                    # 종가 데이터가 있는지 확인
-                    valid_data = [x for x in historical_data if 'close' in x and x['close'] is not None]
-                    if len(valid_data) < 200:
-                        print(f"⚠️ {symbol}: 유효한 종가 데이터 부족 (필요: 200일, 실제: {len(valid_data)}일)")
-                        return None
-                        
-                    # 날짜순 정렬 (최신 데이터가 앞에 오도록)
-                    return sorted(valid_data, key=lambda x: x['date'], reverse=True)
-                else:
-                    print(f"⚠️ {symbol}: 히스토리 데이터 없음")
-                    return None
+                    return sorted(historical_data, key=lambda x: x['date'], reverse=True)
             else:
                 print(f"⚠️ {symbol}: API 응답 에러 (상태 코드: {response.status_code})")
 
-        except requests.exceptions.Timeout:
-            print(f"⚠️ {symbol}: 요청 시간 초과")
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ {symbol}: 요청 실패 - {str(e)}")
         except Exception as e:
-            print(f"❌ {symbol}: 예상치 못한 에러 - {str(e)}")
+            print(f"⚠️ {symbol}: 요청 실패 - {str(e)}")
         
         time.sleep(retry_delay)
-        retry_delay *= 2  # 다음 재시도까지 대기 시간 증가
+        retry_delay *= 2
 
     return None
+
+def calculate_rs(symbol, historical_data):
+    """RS 계산"""
+    if not historical_data or len(historical_data) < 252:
+        return None
+
+    try:
+        # 분기별 데이터 추출 (63일 간격)
+        prices = [float(day['close']) for day in historical_data[:252]]
+        if len(prices) < 252:
+            return None
+
+        # 분기별 수익률 계산
+        quarters = [
+            (prices[0] / prices[63] - 1) * 100,  # 최근 3개월
+            (prices[63] / prices[126] - 1) * 100,  # 2분기
+            (prices[126] / prices[189] - 1) * 100,  # 3분기
+            (prices[189] / prices[252] - 1) * 100  # 4분기
+        ]
+
+        # 가중 평균 수익률 계산
+        weighted_return = (
+            quarters[0] * 0.4 +  # 최근 3개월: 40%
+            quarters[1] * 0.2 +  # 2분기: 20%
+            quarters[2] * 0.2 +  # 3분기: 20%
+            quarters[3] * 0.2    # 4분기: 20%
+        )
+
+        return weighted_return
+    except Exception as e:
+        print(f"⚠️ {symbol} RS 계산 중 오류 발생: {str(e)}")
+        return None
+
+def calculate_rs_ranking(returns_dict):
+    """RS 등급 계산 (1-99 스케일)"""
+    returns = list(returns_dict.values())
+    symbols = list(returns_dict.keys())
     
-def calculate_moving_averages(historical_data):
-    """이동평균선 계산"""
-    if not historical_data or len(historical_data) < 200:
-        return None
-        
-    closes = []
-    for day in historical_data:
-        try:
-            closes.append(float(day['close']))
-        except (ValueError, TypeError):
-            continue
-
-    if len(closes) < 200:
-        return None
-
-    # 이동평균선 계산
-    ma50 = sum(closes[:50]) / 50
-    ma150 = sum(closes[:150]) / 150
-    ma200 = sum(closes[:200]) / 200
-
-    # 200일 이평선 추세 확인
-    ma200_prev = sum(closes[20:220]) / 200
-    ma200_trend = ma200 > ma200_prev
-
-    return {
-        'MA50': ma50,
-        'MA150': ma150,
-        'MA200': ma200,
-        'MA200_trend': ma200_trend
-    }
-
-def get_moving_averages(symbol):
-    """종목의 이동평균선 데이터 가져오기"""
-    historical_data = get_historical_data(symbol)
-    if not historical_data:
-        print(f"⚠️ {symbol} 주가 데이터 누락")
-        return None
-        
-    ma_data = calculate_moving_averages(historical_data)
-    if not ma_data:
-        print(f"⚠️ {symbol} 이동평균선 계산 실패")
-        return None
-        
-    return ma_data
+    # 수익률로 순위 매기기
+    ranks = pd.Series(returns).rank(ascending=False)
+    n = len(returns)
+    
+    # RS 등급 계산: ((종목 수 - 현재 종목의 순위) / (종목 수 - 1) * 98) + 1
+    rs_ratings = ((n - ranks) / (n - 1) * 98) + 1
+    
+    return {symbol: rating for symbol, rating in zip(symbols, rs_ratings)}
 
 def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     """실제 거래 가능한 미국 주식인지 확인"""
@@ -221,8 +167,6 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     type = stock.get('type', '').lower()
     name = stock.get('name', '') or ''
     name = name.lower()
-    volume = safe_float(stock.get('volume'))
-    price = safe_float(stock.get('price'))
 
     etf_keywords = ['etf', 'trust', 'fund']
     if 'etf' in type or any(keyword in name for keyword in etf_keywords):
@@ -242,116 +186,96 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
         'right', 'rights', 'merger', 'spac', 'unit', 'notes',
         'bond', 'series', 'class', 'holding', 'holdings', 'partners', 'management'
     ]
-    if any(keyword in name for keyword in invalid_keywords):
-        return False
+    return not any(keyword in name for keyword in invalid_keywords)
 
-    min_daily_dollar_volume = 1000000
-    if price * volume < min_daily_dollar_volume:
-        return False
-
-    return True
-
-def check_technical_conditions(stock, ma_data):
-    """기술적 조건 확인"""
-    try:
-        symbol = stock.get('symbol')
-        current_price = safe_float(stock.get('price'))
-        ma50 = safe_float(ma_data.get('MA50'))
-        ma150 = safe_float(ma_data.get('MA150'))
-        ma200 = safe_float(ma_data.get('MA200'))
-        ma200_trend = ma_data.get('MA200_trend')
-        year_low = safe_float(stock.get('yearLow'))
-
-        if any(x is None or x <= 0 for x in [current_price, ma50, ma150, ma200, year_low]):
-            print(f"⚠️ {symbol} 일부 데이터 누락 또는 0 이하: price={current_price}, MA50={ma50}, MA150={ma150}, MA200={ma200}, yearLow={year_low}")
-            return False
-
-        conditions = {
-            'current_price > ma150': current_price > ma150,
-            'current_price > ma200': current_price > ma200,
-            'ma150 > ma200': ma150 > ma200,
-            'ma200_trend': ma200_trend,
-            'ma50 > ma150': ma50 > ma150,
-            'ma50 > ma200': ma50 > ma200,
-            'current_price > ma50': current_price > ma50,
-            'current_price > year_low*1.3': current_price > (year_low * 1.3)
-        }
-
-        # 각 조건의 결과를 출력
-        if not all(conditions.values()):
-            failed_conditions = [name for name, result in conditions.items() if not result]
-            print(f"❌ {symbol} 불만족 조건들: {', '.join(failed_conditions)}")
-            print(f"   현재가: {current_price}, MA50: {ma50}, MA150: {ma150}, MA200: {ma200}")
-            print(f"   52주 저가: {year_low}, 저가의 130%: {year_low * 1.3}")
-            return False
-        
-        print(f"✅ {symbol} 모든 기술적 조건 만족")
-        return True
-
-    except Exception as e:
-        print(f"⚠️ {stock.get('symbol')} 기술적 조건 확인 중 오류 발생: {e}")
-        return False
-
-def filter_stocks(stocks):
-    """주식 필터링"""
-    print("\n🔎 필터링 시작...")
-    print(f"📌 필터링 전 종목 수: {len(stocks)}개")
-
+def process_stocks():
+    """종목 처리 및 RS 계산"""
+    print("\n🔎 종목 처리 시작...")
+    
+    # 1. 기본 필터링을 위한 데이터 가져오기
     delisted_stocks = get_delisted_stocks()
     tradable_stocks = get_tradable_stocks()
     
-    filtered = []
-    processed = 0
-    for stock in stocks:
-        processed += 1
-        if processed % 100 == 0:
-            print(f"진행 중: {processed}/{len(stocks)} 종목 처리됨")
+    # 2. 모든 종목 데이터 가져오기
+    all_stocks = get_quotes()
+    
+    # 3. 유효한 종목 필터링 및 RS 계산
+    valid_stocks = {}
+    rs_returns = {}
+    
+    for stock in all_stocks:
+        if is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
+            valid_stocks[stock['symbol']] = stock
+            
+            # RS 계산을 위한 히스토리 데이터 가져오기
+            historical_data = get_historical_data(stock['symbol'])
+            if historical_data:
+                rs_return = calculate_rs(stock['symbol'], historical_data)
+                if rs_return is not None:
+                    rs_returns[stock['symbol']] = rs_return
+    
+    # 4. RS 등급 계산
+    rs_ratings = calculate_rs_ranking(rs_returns)
+    
+    # 5. 52주 신고가 조건 및 기술적 조건 확인
+    filtered_stocks = []
+    for symbol, stock in valid_stocks.items():
+        if check_high_and_technical_conditions(stock):
+            stock_data = prepare_stock_data(stock)
+            if symbol in rs_ratings:
+                stock_data['rs_rating'] = rs_ratings[symbol]
+            filtered_stocks.append(stock_data)
+    
+    return filtered_stocks
 
-        if not is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
-            continue
-            
-        price = safe_float(stock.get('price'))
-        volume = safe_float(stock.get('volume'))
-        yearHigh = safe_float(stock.get('yearHigh'))
-        marketCap = safe_float(stock.get('marketCap'))
+def check_high_and_technical_conditions(stock):
+    """52주 신고가 및 기술적 조건 확인"""
+    price = safe_float(stock.get('price'))
+    volume = safe_float(stock.get('volume'))
+    yearHigh = safe_float(stock.get('yearHigh'))
+    marketCap = safe_float(stock.get('marketCap'))
+    
+    try:
+        price_to_high_ratio = (price / yearHigh) * 100 if yearHigh and yearHigh > 0 else 0
+    except ZeroDivisionError:
+        return False
+    
+    if not (price >= 10 and volume >= 1000000 and marketCap >= 500000000 and price_to_high_ratio >= 75):
+        return False
         
-        try:
-            price_to_high_ratio = (price / yearHigh) * 100 if yearHigh and yearHigh > 0 else 0
-        except ZeroDivisionError:
-            continue
-        
-        if not (price >= 10 and volume >= 1000000 and marketCap >= 500000000 and price_to_high_ratio >= 95):
-            continue
-            
-        ma_data = get_moving_averages(stock['symbol'])
-        if ma_data is None:
-            continue
-        
-        if check_technical_conditions(stock, ma_data):
-            try:
-                change_percent = ((price - safe_float(stock.get('previousClose'))) / 
-                                safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
-            except ZeroDivisionError:
-                change_percent = 0
-            
-            filtered.append({
-                'symbol': stock['symbol'],
-                'price': price,
-                'volume': volume,
-                'yearHigh': yearHigh,
-                'marketCap': marketCap,
-                'name': stock['name'],
-                'exchange': stock['exchange'],
-                'price_to_high_ratio': price_to_high_ratio,
-                'change_percent': change_percent
-            })
-            print(f"✅ 조건 만족 종목 발견: {stock['symbol']} (신고가대비: {price_to_high_ratio:.1f}%)")
+    ma_data = get_moving_averages(stock['symbol'])
+    if ma_data is None:
+        return False
+    
+    return check_technical_conditions(stock, ma_data)
 
-    print(f"✅ 모든 조건 만족 종목: {len(filtered)}개")
-    return sorted(filtered, key=lambda x: x['price_to_high_ratio'], reverse=True)
+def prepare_stock_data(stock):
+    """Airtable에 저장할 데이터 준비"""
+    price = safe_float(stock.get('price'))
+    yearHigh = safe_float(stock.get('yearHigh'))
+    
+    try:
+        price_to_high_ratio = (price / yearHigh) * 100 if yearHigh and yearHigh > 0 else 0
+        change_percent = ((price - safe_float(stock.get('previousClose'))) / 
+                         safe_float(stock.get('previousClose'))) * 100 if safe_float(stock.get('previousClose')) > 0 else 0
+    except ZeroDivisionError:
+        price_to_high_ratio = 0
+        change_percent = 0
+    
+    return {
+        'symbol': stock['symbol'],
+        'price': price,
+        'volume': stock.get('volume'),
+        'yearHigh': yearHigh,
+        'marketCap': stock.get('marketCap'),
+        'name': stock['name'],
+        'exchange': stock['exchange'],
+        'price_to_high_ratio': price_to_high_ratio,
+        'change_percent': change_percent
+    }
 
 def update_airtable(stocks):
-    """Airtable에 새 레코드 추가"""
+    """Airtable 업데이트"""
     print("\n📡 Airtable 업데이트 시작...")
     airtable = Airtable(AIRTABLE_BASE_ID, TABLE_NAME, AIRTABLE_API_KEY)
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -367,17 +291,16 @@ def update_airtable(stocks):
             '업데이트 시간': current_date,
             '분류': "52주_신고가_근접",
             '거래소 정보': stock['exchange'],
-            '신고가 비율(%)': stock['price_to_high_ratio']
+            '신고가 비율(%)': stock['price_to_high_ratio'],
+            'RS': stock.get('rs_rating', 0)  # RS 등급 추가
         }
         airtable.insert(record)
     print("✅ Airtable 업데이트 완료!")
 
 def main():
-    stocks = get_quotes()
-    if stocks:
-        filtered_stocks = filter_stocks(stocks)
-        if filtered_stocks:
-            update_airtable(filtered_stocks)
+    filtered_stocks = process_stocks()
+    if filtered_stocks:
+        update_airtable(filtered_stocks)
 
 if __name__ == "__main__":
     main()
