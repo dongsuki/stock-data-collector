@@ -188,6 +188,36 @@ def is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
     ]
     return not any(keyword in name for keyword in invalid_keywords)
 
+def get_quotes():
+    """미국 주식 데이터 가져오기"""
+    print("📡 데이터 수집 시작...")
+
+    def fetch_exchange_data(exchange):
+        rate_limiter.wait_if_needed()
+        try:
+            url = f"https://financialmodelingprep.com/api/v3/quotes/{exchange}?apikey={FMP_API_KEY}"
+            response = requests.get(url, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                print(f"📌 {exchange} 종목 수집 완료: {len(data)}개")
+                return data
+            elif response.status_code == 429:
+                print("⚠️ API 호출 한도 초과, 잠시 대기 후 재시도...")
+                time.sleep(5)
+                return fetch_exchange_data(exchange)
+            else:
+                print(f"⚠️ {exchange} API 응답 에러: {response.status_code}")
+        except Exception as e:
+            print(f"❌ {exchange} 데이터 수집 실패: {str(e)}")
+        return []
+
+    nasdaq_stocks = fetch_exchange_data("NASDAQ")
+    nyse_stocks = fetch_exchange_data("NYSE")
+    
+    all_stocks = nasdaq_stocks + nyse_stocks
+    print(f"✅ 총 수집 종목 수: {len(all_stocks)}개")
+    return all_stocks
+
 def process_stocks():
     """종목 처리 및 RS 계산"""
     print("\n🔎 종목 처리 시작...")
