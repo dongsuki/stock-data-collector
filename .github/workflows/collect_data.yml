@@ -4,7 +4,6 @@ on:
     # 미국 주식 시장 마감 후 데이터 수집 (한국 시간 기준 아침 6시)
     - cron: '0 21 * * 1-5'  
   workflow_dispatch:  # 수동 실행 옵션
-
 jobs:
   collect-data:
     runs-on: ubuntu-latest
@@ -25,16 +24,22 @@ jobs:
         pip install requests
         pip install airtable-python-wrapper
         pip install pytz
-        pip install numpy
-        pip install pandas
     
-    - name: Collect 52 Week High Technical Data
+    - name: Run collect_stock_data.py
       env:
+        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
         FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./collect_52_week_high_tec.py
-
+      run: python ./collect_stock_data.py
+      
+    - name: Run highest_traded_value.py
+      env:
+        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+      run: python ./highest_traded_value.py
+      
     - name: Run Market Cap Leaders Collection (FMP)
       env:
         FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
@@ -42,17 +47,9 @@ jobs:
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
       run: python ./collect_market_cap.py
 
-          - name: Run highest_traded_value.py
+    - name: Collect 52 Week High Technical Data
       env:
-        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
-        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./highest_traded_value.py
-
-          - name: Run collect_stock_data.py
-      env:
-        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
         FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./collect_stock_data.py
+      run: python ./collect_52_week_high_tec.py
