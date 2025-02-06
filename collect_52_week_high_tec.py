@@ -1,5 +1,6 @@
 import os
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from airtable import Airtable
 import time
@@ -387,3 +388,28 @@ def update_airtable(stocks):
             continue
 
     print("✅ Airtable 업데이트 완료!")
+
+def main():
+    try:
+        print("\n🚀 프로그램 시작...")
+        print(f"FMP_API_KEY: {'설정됨' if FMP_API_KEY else '미설정'}")
+        print(f"AIRTABLE_API_KEY: {'설정됨' if AIRTABLE_API_KEY else '미설정'}")
+        print(f"AIRTABLE_BASE_ID: {'설정됨' if AIRTABLE_BASE_ID else '미설정'}")
+        
+        if not all([FMP_API_KEY, AIRTABLE_API_KEY, AIRTABLE_BASE_ID]):
+            raise ValueError("필수 환경 변수가 설정되지 않았습니다.")
+            
+        filtered_stocks = process_stocks()
+        if filtered_stocks:
+            print(f"\n📊 조건을 만족하는 종목 수: {len(filtered_stocks)}개")
+            update_airtable(filtered_stocks)
+        else:
+            print("\n⚠️ 조건을 만족하는 종목이 없습니다.")
+    except Exception as e:
+        print(f"\n❌ 프로그램 실행 중 오류 발생: {str(e)}")
+        raise  # 에러를 다시 발생시켜 스택 트레이스를 볼 수 있게 함
+    finally:
+        print("\n✨ 프로그램 종료")
+
+if __name__ == "__main__":
+    main()
