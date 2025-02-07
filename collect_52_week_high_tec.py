@@ -351,7 +351,6 @@ def process_stocks():
         valid_stocks[symbol] = stock
     
     print(f"\n기본 필터링 후 남은 종목 수: {len(valid_stocks)}")
-    }
     
     # 4. 배치로 히스토리 데이터 조회 및 RS 계산
     print(f"\n📊 {len(valid_stocks)} 종목에 대한 RS 계산 시작...")
@@ -373,21 +372,35 @@ def process_stocks():
                     rs_value = calculate_rs(symbol, historical)
                     if rs_value is not None:
                         rs_data[symbol] = rs_value
+                    print(f"✅ {symbol} RS값: {rs_value}")
+                else:
+                    print(f"⚠️ {symbol}: 충분한 히스토리 데이터 없음 ({len(historical)}일)")
+    
+    print(f"\nRS 계산 완료된 종목 수: {len(rs_data)}")
     
     # 5. RS 등급 계산
     rs_ratings = calculate_rs_rating(rs_data)
     
     # 6. 52주 신고가 조건 및 기술적 조건 확인
     filtered_stocks = []
-    for symbol, stock in valid_stocks.items():
-        if symbol in historical_data_map and check_high_conditions(stock):
-            if check_technical_conditions(stock, historical_data_map[symbol]):
-                stock_data = prepare_stock_data(stock)
-                if symbol in rs_ratings:
-                    stock_data['rs_rating'] = rs_ratings[symbol]
-                filtered_stocks.append(stock_data)
+    technical_check_count = 0
+    high_conditions_count = 0
     
-    print(f"\n✅ 필터링된 종목 수: {len(filtered_stocks)}개")
+    for symbol, stock in valid_stocks.items():
+        if symbol in historical_data_map:
+            if check_high_conditions(stock):
+                high_conditions_count += 1
+                if check_technical_conditions(stock, historical_data_map[symbol]):
+                    technical_check_count += 1
+                    stock_data = prepare_stock_data(stock)
+                    if symbol in rs_ratings:
+                        stock_data['rs_rating'] = rs_ratings[symbol]
+                        print(f"✅ {symbol} 최종 RS등급: {rs_ratings[symbol]:.2f}")
+                    filtered_stocks.append(stock_data)
+    
+    print(f"\n52주 신고가 조건 만족 종목 수: {high_conditions_count}")
+    print(f"기술적 조건까지 만족 종목 수: {technical_check_count}")
+    print(f"\n✅ 최종 필터링된 종목 수: {len(filtered_stocks)}개")
     return filtered_stocks
 
 def prepare_stock_data(stock):
