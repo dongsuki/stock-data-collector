@@ -40,17 +40,18 @@ def get_quote(symbol):
 def calculate_rs(historical_data):
     """RS 계산"""
     try:
-        # 분기별 데이터 추출 (63일 간격)
-        if len(historical_data) < 252:
-            print("⚠️ 충분한 데이터가 없습니다")
-            return None
-            
+        print("\n=== 데이터 확인 ===")
+        print(f"전체 데이터 수: {len(historical_data)}")
+        print(f"첫 번째 데이터: {historical_data[0]}")
+        print(f"마지막 데이터: {historical_data[-1]}")
+        
         closes = [float(day['close']) for day in historical_data]
-        quarters = [
-            (closes[0] / closes[63] - 1) * 100,    # 최근 3개월
-            (closes[63] / closes[126] - 1) * 100,  # 2분기
-            (closes[126] / closes[189] - 1) * 100, # 3분기
-            (closes[189] / closes[252] - 1) * 100  # 4분기
+        print(f"\n=== 종가 데이터 ===")
+        print(f"시작일: {historical_data[0]['date']}, 종가: {closes[0]}")
+        print(f"63일전: {historical_data[63]['date']}, 종가: {closes[63]}")
+        print(f"126일전: {historical_data[126]['date']}, 종가: {closes[126]}")
+        print(f"189일전: {historical_data[189]['date']}, 종가: {closes[189]}")
+        print(f"252일전: {historical_data[251]['date']}, 종가: {closes[251]}")
         ]
         
         weighted_return = (
