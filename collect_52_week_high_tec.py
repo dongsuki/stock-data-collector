@@ -52,7 +52,7 @@ def calculate_rs(historical_data):
         print(f"126일전: {historical_data[126]['date']}, 종가: {closes[126]}")
         print(f"189일전: {historical_data[189]['date']}, 종가: {closes[189]}")
         print(f"252일전: {historical_data[251]['date']}, 종가: {closes[251]}")
-        ]
+        
         
         weighted_return = (
             quarters[0] * 0.4 +  # 최근 3개월: 40%
