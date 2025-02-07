@@ -320,8 +320,8 @@ def process_stocks():
     print(f"\n📊 {len(valid_stocks)} 종목에 대한 RS 계산 시작...")
     rs_data = {}
     historical_data_map = {}
-
-symbols = list(valid_stocks.keys())
+    
+    symbols = list(valid_stocks.keys())
     for i in range(0, len(symbols), CHUNK_SIZE):
         chunk = symbols[i:i+CHUNK_SIZE]
         print(f"Processing batch {i//CHUNK_SIZE + 1}/{(len(symbols) + CHUNK_SIZE - 1)//CHUNK_SIZE}")
