@@ -23,11 +23,12 @@ jobs:
      run: |
        python -m pip install --upgrade pip
        pip install -r requirements.txt
-
-   - name: Run mark
-      env:
-        POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
-        FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-      run: python ./mark.py
+   
+   - name: Run mark.py
+     env:
+       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+       AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+       AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+     run: python ./mark.py
+     
