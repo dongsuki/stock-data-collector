@@ -252,8 +252,10 @@ def calculate_moving_averages(historical_data):
 
 def check_technical_conditions(stock, historical_data):
     """기술적 조건 확인"""
+    symbol = stock.get('symbol')
     ma_data = calculate_moving_averages(historical_data)
     if not ma_data:
+        print(f"⚠️ {symbol}: 이동평균 계산 실패")
         return False
         
     try:
@@ -265,6 +267,7 @@ def check_technical_conditions(stock, historical_data):
         year_low = safe_float(stock.get('yearLow'))
 
         if any(x is None or x <= 0 for x in [current_price, ma50, ma150, ma200, year_low]):
+            print(f"⚠️ {symbol}: 유효하지 않은 데이터 - price={current_price}, MA50={ma50}, MA150={ma150}, MA200={ma200}, yearLow={year_low}")
             return False
 
         conditions = {
@@ -278,13 +281,24 @@ def check_technical_conditions(stock, historical_data):
             'current_price > year_low*1.3': current_price > (year_low * 1.3)
         }
 
-        return all(conditions.values())
+        # 각 조건의 결과를 출력
+        failed_conditions = [name for name, result in conditions.items() if not result]
+        if failed_conditions:
+            print(f"❌ {symbol} 불만족 조건들: {', '.join(failed_conditions)}")
+            print(f"   현재가: {current_price}, MA50: {ma50}, MA150: {ma150}, MA200: {ma200}")
+            print(f"   52주 저가: {year_low}, 저가의 130%: {year_low * 1.3}")
+            return False
+            
+        print(f"✅ {symbol} 모든 기술적 조건 만족")
+        return True
 
     except Exception as e:
-        print(f"⚠️ {stock.get('symbol')} 기술적 조건 확인 중 오류 발생: {e}")
+        print(f"⚠️ {symbol} 기술적 조건 확인 중 오류 발생: {e}")
         return False
 
 def check_high_conditions(stock):
+    """52주 신고가 조건 확인"""
+    symbol = stock.get('symbol')
     price = safe_float(stock.get('price'))
     volume = safe_float(stock.get('volume'))
     yearHigh = safe_float(stock.get('yearHigh'))
@@ -292,11 +306,27 @@ def check_high_conditions(stock):
     
     try:
         price_to_high_ratio = (price / yearHigh) * 100 if yearHigh and yearHigh > 0 else 0
+        
+        conditions = {
+            'price >= 10': price >= 10,
+            'volume >= 1000000': volume >= 1000000,
+            'marketCap >= 500000000': marketCap >= 500000000,
+            'price_to_high_ratio >= 75': price_to_high_ratio >= 75
+        }
+        
+        failed_conditions = [name for name, result in conditions.items() if not result]
+        if failed_conditions:
+            print(f"❌ {symbol} 52주 신고가 조건 불만족: {', '.join(failed_conditions)}")
+            print(f"   가격: {price}, 거래량: {volume}, 시가총액: {marketCap}")
+            print(f"   신고가 비율: {price_to_high_ratio:.1f}%")
+            return False
+            
+        print(f"✅ {symbol} 52주 신고가 조건 만족")
+        return True
+        
     except ZeroDivisionError:
+        print(f"⚠️ {symbol} 52주 고가가 0입니다")
         return False
-    
-    return (price >= 10 and volume >= 1000000 and 
-            marketCap >= 500000000 and price_to_high_ratio >= 75)
 
 def process_stocks():
     """종목 처리 및 RS 계산"""
@@ -305,15 +335,22 @@ def process_stocks():
     # 1. 기본 필터링을 위한 데이터 가져오기
     delisted_stocks = get_delisted_stocks()
     tradable_stocks = get_tradable_stocks()
+    print(f"상장폐지 종목 수: {len(delisted_stocks)}")
+    print(f"거래가능 종목 수: {len(tradable_stocks)}")
     
     # 2. 모든 종목 데이터 가져오기
     all_stocks = get_quotes()
     
-    # 3. 유효한 종목 필터링
-    valid_stocks = {
-        stock['symbol']: stock 
-        for stock in all_stocks 
-        if is_valid_us_stock(stock, delisted_stocks, tradable_stocks)
+    # 3. 유효한 종목 필터링 및 필터링 이유 출력
+    valid_stocks = {}
+    for stock in all_stocks:
+        symbol = stock.get('symbol')
+        if not is_valid_us_stock(stock, delisted_stocks, tradable_stocks):
+            print(f"✗ {symbol} 제외 - 기본 필터링")
+            continue
+        valid_stocks[symbol] = stock
+    
+    print(f"\n기본 필터링 후 남은 종목 수: {len(valid_stocks)}")
     }
     
     # 4. 배치로 히스토리 데이터 조회 및 RS 계산
