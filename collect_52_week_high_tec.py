@@ -53,6 +53,13 @@ def calculate_rs(historical_data):
         print(f"189일전: {historical_data[189]['date']}, 종가: {closes[189]}")
         print(f"252일전: {historical_data[251]['date']}, 종가: {closes[251]}")
         
+        # 분기별 수익률 계산 추가
+        quarters = [
+            ((closes[0] - closes[63]) / closes[63]) * 100,  # 최근 3개월
+            ((closes[63] - closes[126]) / closes[126]) * 100,  # 2분기
+            ((closes[126] - closes[189]) / closes[189]) * 100,  # 3분기
+            ((closes[189] - closes[251]) / closes[251]) * 100,  # 4분기
+        ]
         
         weighted_return = (
             quarters[0] * 0.4 +  # 최근 3개월: 40%
@@ -73,7 +80,7 @@ def calculate_rs(historical_data):
     except Exception as e:
         print(f"⚠️ RS 계산 중 오류 발생: {str(e)}")
         return None
-
+        
 def check_conditions(quote_data, historical_data):
     """52주 신고가 + 기술적 조건 확인"""
     try:
