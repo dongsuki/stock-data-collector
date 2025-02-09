@@ -1,3 +1,5 @@
+workflows
+
 name: Stock Data Collection
 on:
  schedule:
