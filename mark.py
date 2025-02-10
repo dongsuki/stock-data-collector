@@ -33,14 +33,174 @@ def get_tickers_from_airtable() -> List[str]:
         print(f"티커 목록 조회 중 에러 발생: {str(e)}")
         return []
 
-[기존 코드의 나머지 함수들 유지...]
+def calculate_eps(net_income: float, shares: float) -> Optional[float]:
+    """순이익과 주식수로 EPS 직접 계산"""
+    try:
+        if not net_income or not shares or shares <= 0:
+            return None
+        return net_income / shares
+    except (ValueError, TypeError, ZeroDivisionError) as e:
+        print(f"EPS 계산 중 에러: {str(e)}")
+        return None
+
+def find_matching_quarter_data(current_data: Dict, financials: List[Dict]) -> Optional[Dict]:
+    """Calendar Year와 Period 기준으로 전년 동기 데이터 찾기"""
+    try:
+        current_year = int(current_data.get('calendarYear', 0))
+        current_period = current_data.get('period', '')
+        target_year = current_year - 1
+        
+        for quarter in financials:
+            if (int(quarter.get('calendarYear', 0)) == target_year and 
+                quarter.get('period', '') == current_period):
+                return quarter
+                
+    except Exception as e:
+        print(f"분기 매칭 중 에러 발생: {str(e)}")
+    
+    return None
+
+def safe_growth_rate(current: float, previous: float) -> Optional[float]:
+    """안전하게 성장률을 계산"""
+    try:
+        if current is None or previous is None:
+            return None
+            
+        current = float(current)
+        previous = float(previous)
+        
+        if previous == 0:
+            return None
+            
+        return ((current - previous) / abs(previous)) * 100
+            
+    except (ValueError, TypeError) as e:
+        print(f"성장률 계산 중 에러: {str(e)}")
+        return None
+
+def get_financials_fmp(ticker: str, period: str = 'quarter') -> List:
+    """FMP API를 사용하여 재무데이터 조회"""
+    url = f"https://financialmodelingprep.com/api/v3/income-statement/{ticker}"
+    params = {
+        'apikey': FMP_API_KEY,
+        'period': period,
+        'limit': 20 if period == 'quarter' else 5
+    }
+    
+    try:
+        print(f"\n재무데이터 요청: {ticker} ({period})")
+        response = requests.get(url, params=params)
+        
+        if response.status_code == 200:
+            financials = response.json()
+            print(f"재무데이터 수신 성공: {ticker} (데이터 수: {len(financials)})")
+            
+            if not financials:
+                print(f"재무데이터 없음: {ticker}")
+                return []
+                
+            return sorted(financials, key=lambda x: x.get('date', ''), reverse=True)
+        else:
+            print(f"재무데이터 조회 실패 ({ticker}): {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"재무데이터 조회 중 에러 발생 ({ticker}): {str(e)}")
+        return []
+
+def calculate_growth_rates_fmp(ticker: str) -> Dict:
+    """재무 성장률 계산 (전년 동기 대비)"""
+    growth_rates = {
+        'dates': {
+            'quarters': {'q1': None, 'q2': None, 'q3': None},
+            'years': {'y1': None, 'y2': None, 'y3': None}
+        },
+        'eps_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
+        'operating_income_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
+        'revenue_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None}
+    }
+    
+    # 분기 데이터 조회
+    quarterly_data = get_financials_fmp(ticker, 'quarter')
+    if not quarterly_data:
+        return growth_rates
+        
+    # 연간 데이터 조회
+    annual_data = get_financials_fmp(ticker, 'annual')
+    if not annual_data:
+        return growth_rates
+
+    try:
+        # 분기별 성장률 계산
+        for i in range(min(3, len(quarterly_data))):
+            current_quarter = quarterly_data[i]
+            year_ago_quarter = find_matching_quarter_data(current_quarter, quarterly_data)
+            
+            if year_ago_quarter:
+                quarter_key = f'q{i+1}'
+                growth_rates['dates']['quarters'][quarter_key] = current_quarter['date']
+                
+                # EPS 계산
+                current_eps = calculate_eps(
+                    current_quarter.get('netIncome', 0),
+                    current_quarter.get('weightedAverageShsOut', 0)
+                )
+                previous_eps = calculate_eps(
+                    year_ago_quarter.get('netIncome', 0),
+                    year_ago_quarter.get('weightedAverageShsOut', 0)
+                )
+                
+                # 성장률 계산
+                growth_rates['eps_growth'][quarter_key] = safe_growth_rate(current_eps, previous_eps)
+                growth_rates['operating_income_growth'][quarter_key] = safe_growth_rate(
+                    current_quarter.get('operatingIncome'),
+                    year_ago_quarter.get('operatingIncome')
+                )
+                growth_rates['revenue_growth'][quarter_key] = safe_growth_rate(
+                    current_quarter.get('revenue'),
+                    year_ago_quarter.get('revenue')
+                )
+
+        # 연간 성장률 계산
+        for i in range(min(3, len(annual_data) - 1)):
+            current_year = annual_data[i]
+            previous_year = annual_data[i + 1]
+            
+            year_key = f'y{i+1}'
+            growth_rates['dates']['years'][year_key] = current_year['calendarYear']
+            
+            # EPS 계산
+            current_eps = calculate_eps(
+                current_year.get('netIncome', 0),
+                current_year.get('weightedAverageShsOut', 0)
+            )
+            previous_eps = calculate_eps(
+                previous_year.get('netIncome', 0),
+                previous_year.get('weightedAverageShsOut', 0)
+            )
+            
+            # 성장률 계산
+            growth_rates['eps_growth'][year_key] = safe_growth_rate(current_eps, previous_eps)
+            growth_rates['operating_income_growth'][year_key] = safe_growth_rate(
+                current_year.get('operatingIncome'),
+                previous_year.get('operatingIncome')
+            )
+            growth_rates['revenue_growth'][year_key] = safe_growth_rate(
+                current_year.get('revenue'),
+                previous_year.get('revenue')
+            )
+                
+    except Exception as e:
+        print(f"성장률 계산 중 에러 발생: {str(e)}")
+    
+    return growth_rates
+
 
 def get_stock_data(tickers: List[str]) -> List[Dict]:
-    """Polygon API를 사용하여 특정 티커들의 주식 데이터 조회"""
+    """Polygon API를 사용하여 주식 데이터 조회"""
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
     params = {
         'apiKey': POLYGON_API_KEY,
-        'tickers': ','.join(tickers)  # 콤마로 구분된 티커 목록
+        'tickers': ','.join(tickers)
     }
     
     try:
@@ -58,6 +218,21 @@ def get_stock_data(tickers: List[str]) -> List[Dict]:
     except Exception as e:
         print(f"데이터 수집 중 에러 발생: {str(e)}")
         return []
+
+def get_stock_details(ticker: str) -> Dict:
+    """Polygon API를 사용하여 주식 상세 정보 조회"""
+    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
+    params = {'apiKey': POLYGON_API_KEY}
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json().get('results', {})
+        print(f"종목 상세정보 조회 실패 ({ticker}): {response.status_code}")
+        return {}
+    except Exception as e:
+        print(f"종목 상세정보 조회 중 에러 발생 ({ticker}): {str(e)}")
+        return {}
 
 def update_airtable(stock_data: List, category: str):
     """Airtable에 데이터 업데이트"""
@@ -151,6 +326,15 @@ def update_airtable(stock_data: List, category: str):
         except Exception as e:
             print(f"레코드 처리 중 에러 발생 ({stock.get('ticker', 'Unknown')}): {str(e)}")
 
+def convert_exchange_code(mic: str) -> str:
+    """거래소 코드 변환"""
+    exchange_map = {
+        'XNAS': 'NASDAQ',
+        'XNYS': 'NYSE',
+        'XASE': 'AMEX'
+    }
+    return exchange_map.get(mic, mic)
+
 def main():
     try:
         print("데이터 수집 시작...")
@@ -165,6 +349,9 @@ def main():
         stock_data = []
         for ticker in tickers:
             try:
+                print(f"\n{ticker} 데이터 수집 중...")
+                
+                # 기본 주식 데이터 조회
                 data = get_stock_data([ticker])  # 리스트로 전달
                 if data and data[0]:  # 첫 번째 결과만 사용
                     details = get_stock_details(ticker)
