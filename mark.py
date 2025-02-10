@@ -1,21 +1,21 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, time as dtime
 from airtable import Airtable
 import time
 from typing import Dict, List, Optional, Tuple
 
-# API 키 설정
+# === API 키 설정 ===
 POLYGON_API_KEY = "lsstdMdFXY50qjPNMQrXFp4vAGj0bNd5"
 FMP_API_KEY = "EApxNJTRwcXOrhy2IUqSeKV0gyH8gans"
 AIRTABLE_API_KEY = "patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748"
 
-# Airtable 설정
+# === Airtable 설정 ===
 SOURCE_BASE_ID = "appAh82iPV3cH6Xx5"  # 동일한 베이스를 사용
 TARGET_BASE_ID = "appAh82iPV3cH6Xx5"
 SOURCE_TABLE_NAME = "트레이더의 선택"
 SOURCE_VIEW_NAME = "마크미너비니"
-TARGET_TABLE_NAME = "미국주식 데이터"
+TARGET_TABLE_NAME = "트레이더의 선택"
 
 def get_tickers_from_airtable() -> List[str]:
     """Airtable에서 티커 목록 가져오기"""
@@ -197,35 +197,66 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
     
     return growth_rates
 
-# [변경됨] 개별 티커 데이터 조회: 기존 /v2/snapshot/locale/us/markets/stocks/tickers/{ticker} 대신,
-# 오늘의 시가/종가/거래량 등의 데이터를 얻기 위해 v1/open-close 엔드포인트 사용 및 키 매핑
 def get_stock_data(ticker: str) -> Dict:
-    """Polygon API를 사용하여 주식 데이터 조회 (개별 티커용 open-close 엔드포인트 사용)"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    url = f"https://api.polygon.io/v1/open-close/{ticker}/{today}"
-    params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
+    """Polygon API를 사용하여 주식 데이터 조회 (장전 또는 장마감 후 데이터 조회)
+    - 장전: 어제의 종가 데이터 (/v2/aggs/ticker/{ticker}/prev)
+    - 장마감 후: 당일의 open-close 데이터 (/v1/open-close/{ticker}/{today})
+    """
+    now = datetime.now()
+    # ET(동부시간) 기준 9:30 ~ 16:00 (서버 시간이 ET가 아니라면 타임존 변환 필요)
+    market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
+    
+    if now < market_open:
+        # 장전: 이전 거래일 데이터 사용
+        url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
+        params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
+        endpoint_used = 'prev'
+    elif now >= market_close:
+        # 장마감 후: 당일 데이터 사용
+        today = now.strftime("%Y-%m-%d")
+        url = f"https://api.polygon.io/v1/open-close/{ticker}/{today}"
+        params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
+        endpoint_used = 'open-close'
+    else:
+        print(f"{ticker} 현재는 장중입니다. 장전 또는 장마감 후에 실행하세요.")
+        return {}
     
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
             data = response.json()
-            if data.get('status') == 'OK':
-                # 기존 코드에서 사용하는 키: 'c' (종가), 'v' (거래량) 등으로 변환
-                transformed = {
-                    'c': data.get('close', 0),
-                    'o': data.get('open', 0),
-                    'h': data.get('high', 0),
-                    'l': data.get('low', 0),
-                    'v': data.get('volume', 0)
-                }
-                # 오늘의 등락률 계산 (open값이 0이 아니면)
-                if transformed['o'] != 0:
-                    transformed['todaysChangePerc'] = ((transformed['c'] - transformed['o']) / transformed['o']) * 100
+            if endpoint_used == 'prev':
+                if data.get('status') == 'OK' and data.get('results'):
+                    result = data['results'][0]
+                    transformed = {
+                        'c': result.get('c', 0),  # 종가
+                        'o': result.get('o', 0),  # 시가
+                        'h': result.get('h', 0),  # 고가
+                        'l': result.get('l', 0),  # 저가
+                        'v': result.get('v', 0)   # 거래량
+                    }
                 else:
-                    transformed['todaysChangePerc'] = 0
-                # ticker 값도 추가
-                transformed['ticker'] = ticker
-                return {'day': transformed, 'ticker': ticker}
+                    print(f"데이터 없음 ({ticker}): {data}")
+                    return {}
+            else:  # open-close 엔드포인트 사용 시
+                if data.get('status') == 'OK':
+                    transformed = {
+                        'c': data.get('close', 0),
+                        'o': data.get('open', 0),
+                        'h': data.get('high', 0),
+                        'l': data.get('low', 0),
+                        'v': data.get('volume', 0)
+                    }
+                else:
+                    print(f"데이터 없음 ({ticker}): {data}")
+                    return {}
+            if transformed['o'] != 0:
+                transformed['todaysChangePerc'] = ((transformed['c'] - transformed['o']) / transformed['o']) * 100
+            else:
+                transformed['todaysChangePerc'] = 0
+            transformed['ticker'] = ticker
+            return {'day': transformed, 'ticker': ticker}
         print(f"주식 데이터 조회 실패 ({ticker}): {response.status_code}")
         return {}
     except Exception as e:
@@ -247,7 +278,6 @@ def get_stock_details(ticker: str) -> Dict:
         print(f"종목 상세정보 조회 중 에러 발생 ({ticker}): {str(e)}")
         return {}
 
-# [변경됨] Airtable 업데이트: 기존 insert 대신 '티커' 필드를 기준으로 기존 레코드 업데이트 (없으면 insert)
 def update_airtable(stock_data: List, category: str):
     """Airtable에 데이터 업데이트 (기존 '마크미너비니' 뷰의 레코드 업데이트)"""
     airtable = Airtable(TARGET_BASE_ID, TARGET_TABLE_NAME, AIRTABLE_API_KEY)
@@ -356,7 +386,7 @@ def main():
             try:
                 print(f"\n{ticker} 데이터 수집 중...")
                 
-                # 기본 주식 데이터 조회 (개별 티커용 open-close 엔드포인트 사용)
+                # 기본 주식 데이터 조회 (장전 또는 장마감 후에 따라 적절한 엔드포인트 사용)
                 data = get_stock_data(ticker)
                 if not data:
                     continue
