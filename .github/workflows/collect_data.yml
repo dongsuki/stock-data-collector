@@ -48,7 +48,7 @@ jobs:
        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
      run: python ./collect_market_cap.py
 
-   - name: Collect 52 Week High Technical Data
+   - name: Run Collect 52 Week High Technical Data
      env:
        FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
