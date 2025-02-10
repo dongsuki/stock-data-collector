@@ -1,5 +1,3 @@
-workflows
-
 name: Stock Data Collection
 on:
  schedule:
@@ -41,14 +39,14 @@ jobs:
        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
      run: python ./highest_traded_value.py
      
-   - name: Run Market Cap Leaders Collection (FMP)
+   - name: Run collect_market_cap.py
      env:
        FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
      run: python ./collect_market_cap.py
 
-   - name: Run Collect 52 Week High Technical Data
+   - name: Run collect_52_week_high_tec.py
      env:
        FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
