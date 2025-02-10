@@ -348,15 +348,15 @@ def update_airtable(stock_data: List, category: str):
             if stock.get('primary_exchange'):
                 record['거래소 정보'] = convert_exchange_code(stock['primary_exchange'])
             
-            # 기존 "마크미너비니" 뷰에서 해당 티커와 매칭되는 레코드가 있는지 검색 후 업데이트
-            existing_records = airtable.search('티커', record['티커'])
+            # 마크미너비니 뷰에서 해당 티커의 레코드 찾기
+            existing_records = airtable.search('티커', record['티커'], view='마크미너비니')
             if existing_records:
                 record_id = existing_records[0]['id']
                 airtable.update(record_id, record)
-                print(f"데이터 업데이트 완료: {record['티커']}")
+                print(f"데이터 업데이트 완료 (마크미너비니 뷰): {record['티커']}")
             else:
-                airtable.insert(record)
-                print(f"데이터 추가 완료 (기존 레코드 없음): {record['티커']}")
+                print(f"마크미너비니 뷰에서 {record['티커']} 티커를 찾을 수 없습니다.")
+            
             time.sleep(1)  # Rate limit 고려
                 
         except Exception as e:
