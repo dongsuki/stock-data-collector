@@ -1,4 +1,4 @@
-name: Mark
+name: Mark Stock
 on:
   workflow_dispatch:
 
