@@ -1,4 +1,6 @@
-name: Mark
+workflows
+
+name: Mark Stock
 on:
   workflow_dispatch:  # 수동 실행 옵션만 남김
 
