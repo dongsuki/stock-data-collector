@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from typing import Dict, List
 from airtable import Airtable
+import os
+import requests
+import FinanceDataReader as fdr
 
 class StockAnalyzer:
     def __init__(self):
@@ -12,23 +15,25 @@ class StockAnalyzer:
         # Airtable 설정
         self.base_id = 'appJFk54sIT9oSiZy'
         self.table_name = '마크미너비니'
-        self.api_key = 'patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748'
+        self.api_key = os.environ['AIRTABLE_API_KEY']
         self.airtable = Airtable(self.base_id, self.table_name, self.api_key)
 
     def get_krx_tickers(self) -> List[str]:
         """코스피, 코스닥 티커 가져오기 (ETF 제외)"""
-        kospi = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt')[0]
-        kosdaq = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=kosdaqMkt')[0]
+        # KOSPI 종목 가져오기
+        kospi = fdr.StockListing('KOSPI')
+        # KOSDAQ 종목 가져오기
+        kosdaq = fdr.StockListing('KOSDAQ')
         
         # 종목코드 포맷팅
-        kospi['종목코드'] = kospi['종목코드'].apply(lambda x: f"{x:06d}.KS")
-        kosdaq['종목코드'] = kosdaq['종목코드'].apply(lambda x: f"{x:06d}.KQ")
+        kospi_tickers = kospi['Symbol'].apply(lambda x: f"{x}.KS")
+        kosdaq_tickers = kosdaq['Symbol'].apply(lambda x: f"{x}.KQ")
         
         # ETF 제외
-        kospi = kospi[~kospi['주식종류'].str.contains('ETF', na=False)]
-        kosdaq = kosdaq[~kosdaq['주식종류'].str.contains('ETF', na=False)]
+        kospi_tickers = kospi_tickers[~kospi['Name'].str.contains('ETF', na=False)]
+        kosdaq_tickers = kosdaq_tickers[~kosdaq['Name'].str.contains('ETF', na=False)]
         
-        return list(kospi['종목코드']) + list(kosdaq['종목코드'])
+        return list(kospi_tickers) + list(kosdaq_tickers)
 
     def calculate_weighted_return(self, historical: pd.DataFrame) -> float:
         """가중 수익률 계산"""
@@ -43,7 +48,8 @@ class StockAnalyzer:
             q4 = (prices[3] / prices[4] - 1) * 100
             
             return q1 * 0.4 + q2 * 0.2 + q3 * 0.2 + q4 * 0.2
-        except Exception:
+        except Exception as e:
+            print(f"수익률 계산 중 오류 발생: {e}")
             return None
 
     def calculate_rs_rating(self, returns_dict: Dict[str, float]) -> Dict[str, float]:
@@ -52,6 +58,9 @@ class StockAnalyzer:
         symbols = list(valid_returns.keys())
         rets = list(valid_returns.values())
         
+        if not rets:  # 유효한 수익률이 없는 경우
+            return {}
+            
         s = pd.Series(rets)
         ranks = s.rank(ascending=False)
         n = len(rets)
@@ -64,26 +73,50 @@ class StockAnalyzer:
         if len(stock_data) < 220:
             return False
 
-        closes = stock_data['Close'].values
-        current_price = closes[0]
+        try:
+            closes = stock_data['Close'].values
+            current_price = closes[0]
+            
+            # 이동평균선 계산
+            ma50 = np.mean(closes[:50])
+            ma150 = np.mean(closes[:150])
+            ma200 = np.mean(closes[:200])
+            ma200_prev = np.mean(closes[20:220])
+            
+            # 조건 확인
+            conditions = {
+                'price_above_ma50': current_price > ma50,
+                'price_above_ma150': current_price > ma150,
+                'price_above_ma200': current_price > ma200,
+                'ma50_above_ma150': ma50 > ma150,
+                'ma150_above_ma200': ma150 > ma200,
+                'ma200_trend': ma200 > ma200_prev
+            }
+            
+            return all(conditions.values())
+        except Exception as e:
+            print(f"기술적 조건 확인 중 오류 발생: {e}")
+            return False
+
+    def is_trading_day(self) -> bool:
+        """오늘이 거래일인지 확인"""
+        today = datetime.now(self.kst)
         
-        # 이동평균선 계산
-        ma50 = np.mean(closes[:50])
-        ma150 = np.mean(closes[:150])
-        ma200 = np.mean(closes[:200])
-        ma200_prev = np.mean(closes[20:220])
-        
-        # 조건 확인
-        conditions = {
-            'price_above_ma50': current_price > ma50,
-            'price_above_ma150': current_price > ma150,
-            'price_above_ma200': current_price > ma200,
-            'ma50_above_ma150': ma50 > ma150,
-            'ma150_above_ma200': ma150 > ma200,
-            'ma200_trend': ma200 > ma200_prev
-        }
-        
-        return all(conditions.values())
+        # 주말 체크
+        if today.weekday() >= 5:  # 5: 토요일, 6: 일요일
+            return False
+            
+        try:
+            # KRX 거래일 확인
+            krx = fdr.StockListing('KRX')
+            if krx.empty:
+                # API 오류 시 주말만 체크
+                return today.weekday() < 5
+            return True
+        except Exception as e:
+            print(f"거래일 확인 중 오류 발생: {e}")
+            # API 오류 시 주말만 체크
+            return today.weekday() < 5
 
     def analyze_stocks(self):
         """주식 분석 실행"""
@@ -91,18 +124,26 @@ class StockAnalyzer:
         returns_dict = {}
         stock_data = {}
         
-        # 데이터 수집 및 가중 수익률 계산
-        for ticker in tickers:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="2y")
-            if len(hist) > 0:
-                returns_dict[ticker] = self.calculate_weighted_return(hist)
-                stock_data[ticker] = hist
+        print(f"총 {len(tickers)}개 종목 분석 시작...")
+        
+        for i, ticker in enumerate(tickers):
+            try:
+                if i % 100 == 0:
+                    print(f"{i}/{len(tickers)} 종목 처리 중...")
+                    
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="2y")
+                if len(hist) > 0:
+                    returns_dict[ticker] = self.calculate_weighted_return(hist)
+                    stock_data[ticker] = hist
+            except Exception as e:
+                print(f"{ticker} 처리 중 오류 발생: {e}")
+                continue
 
-        # RS 등급 계산
+        print("RS 등급 계산 중...")
         rs_ratings = self.calculate_rs_rating(returns_dict)
         
-        # 조건에 맞는 종목 선별
+        print("조건에 맞는 종목 선별 중...")
         selected_stocks = []
         for ticker, rs_value in rs_ratings.items():
             if rs_value >= 70:  # RS 임계값
@@ -111,43 +152,62 @@ class StockAnalyzer:
                     current_price = hist['Close'].iloc[0]
                     year_high = hist['High'].max()
                     if current_price >= year_high * 0.75:  # 신고가 대비 조건
-                        selected_stocks.append({
-                            'ticker': ticker,
-                            'name': yf.Ticker(ticker).info.get('longName', ''),
-                            'current_price': current_price,
-                            'change_percent': ((current_price / hist['Close'].iloc[1]) - 1) * 100,
-                            'volume': hist['Volume'].iloc[0],
-                            'year_high': year_high,
-                            'rs_rating': rs_value,
-                            'market_cap': yf.Ticker(ticker).info.get('marketCap', 0)
-                        })
+                        try:
+                            stock_info = yf.Ticker(ticker).info
+                            selected_stocks.append({
+                                'ticker': ticker,
+                                'name': stock_info.get('longName', ''),
+                                'current_price': current_price,
+                                'change_percent': ((current_price / hist['Close'].iloc[1]) - 1) * 100,
+                                'volume': hist['Volume'].iloc[0] * current_price,  # 거래대금으로 변환
+                                'year_high': year_high,
+                                'rs_rating': rs_value,
+                                'market_cap': stock_info.get('marketCap', 0)
+                            })
+                        except Exception as e:
+                            print(f"{ticker} 정보 가져오기 중 오류 발생: {e}")
+                            continue
 
+        print(f"총 {len(selected_stocks)}개 종목 선정 완료")
         return selected_stocks
 
     def update_airtable(self, selected_stocks: List[Dict]):
         """Airtable 업데이트"""
-        # 기존 레코드 삭제
-        existing_records = self.airtable.get_all()
-        for record in existing_records:
-            self.airtable.delete(record['id'])
+        print("Airtable 업데이트 시작...")
+        try:
+            # 기존 레코드 삭제
+            existing_records = self.airtable.get_all()
+            for record in existing_records:
+                self.airtable.delete(record['id'])
 
-        # 새로운 데이터 추가
-        for stock in selected_stocks:
-            self.airtable.insert({
-                '종목명': stock['name'],
-                '업데이트 날짜': datetime.now(self.kst).strftime('%Y-%m-%d'),
-                '현재가': stock['current_price'],
-                '등락률': stock['change_percent'],
-                '거래대금': stock['volume'],
-                '52주 신고가': stock['year_high'],
-                'RS순위': stock['rs_rating'],
-                '시가총액': stock['market_cap']
-            })
+            # 새로운 데이터 추가
+            for stock in selected_stocks:
+                self.airtable.insert({
+                    '종목명': stock['name'],
+                    '업데이트 날짜': datetime.now(self.kst).strftime('%Y-%m-%d'),
+                    '현재가': stock['current_price'],
+                    '등락률': round(stock['change_percent'], 2),
+                    '거래대금': round(stock['volume'] / 1_000_000, 2),  # 백만 단위로 변환
+                    '52주 신고가': stock['year_high'],
+                    'RS순위': round(stock['rs_rating'], 2),
+                    '시가총액': round(stock['market_cap'] / 1_000_000_000, 2)  # 10억 단위로 변환
+                })
+            print("Airtable 업데이트 완료")
+        except Exception as e:
+            print(f"Airtable 업데이트 중 오류 발생: {e}")
+            raise
 
 def main():
     analyzer = StockAnalyzer()
+    
+    if not analyzer.is_trading_day():
+        print("오늘은 거래일이 아닙니다.")
+        return
+        
+    print("주식 분석을 시작합니다...")
     selected_stocks = analyzer.analyze_stocks()
     analyzer.update_airtable(selected_stocks)
+    print("분석 완료!")
 
 if __name__ == "__main__":
     main()
