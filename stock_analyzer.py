@@ -23,9 +23,90 @@ class StockAnalyzer:
         self.today = datetime.now(self.kst)
         self.start_date = (self.today - timedelta(days=280)).strftime('%Y-%m-%d')
         self.end_date = self.today.strftime('%Y-%m-%d')
-        
-        # 동시 실행 수 제한
         self.max_workers = 5
+
+    def get_krx_tickers(self) -> List[str]:
+        """코스피, 코스닥 티커 가져오기 (ETF 제외)"""
+        try:
+            kospi = fdr.StockListing('KOSPI')
+            kosdaq = fdr.StockListing('KOSDAQ')
+            
+            code_column = 'Code' if 'Code' in kospi.columns else 'code'
+            name_column = 'Name' if 'Name' in kospi.columns else 'name'
+            
+            kospi_tickers = kospi[code_column].astype(str).apply(lambda x: f"{x.zfill(6)}.KS")
+            kosdaq_tickers = kosdaq[code_column].astype(str).apply(lambda x: f"{x.zfill(6)}.KQ")
+            
+            kospi_tickers = kospi_tickers[~kospi[name_column].str.contains('ETF', na=False)]
+            kosdaq_tickers = kosdaq_tickers[~kosdaq[name_column].str.contains('ETF', na=False)]
+            
+            return list(kospi_tickers) + list(kosdaq_tickers)
+        except Exception as e:
+            print(f"티커 가져오기 중 오류 발생: {e}")
+            raise
+
+    def calculate_weighted_return(self, df: pd.DataFrame) -> float:
+        """가중 수익률 계산"""
+        if len(df) < 252:
+            return None
+            
+        try:
+            required_idx = [0, 63, 126, 189, 251]
+            prices = df['Close'].iloc[required_idx].values
+            
+            q1 = (prices[0] / prices[1] - 1) * 100
+            q2 = (prices[1] / prices[2] - 1) * 100
+            q3 = (prices[2] / prices[3] - 1) * 100
+            q4 = (prices[3] / prices[4] - 1) * 100
+            
+            return q1 * 0.4 + q2 * 0.2 + q3 * 0.2 + q4 * 0.2
+        except Exception as e:
+            print(f"수익률 계산 중 오류 발생: {e}")
+            return None
+
+    def calculate_rs_rating(self, returns_dict: Dict[str, float]) -> Dict[str, float]:
+        """RS 등급 계산"""
+        valid_returns = {k: v for k, v in returns_dict.items() if v is not None}
+        symbols = list(valid_returns.keys())
+        rets = list(valid_returns.values())
+        
+        if not rets:
+            return {}
+            
+        s = pd.Series(rets)
+        ranks = s.rank(ascending=False)
+        n = len(rets)
+        rs_values = ((n - ranks) / (n - 1) * 98) + 1
+        
+        return {sym: rs for sym, rs in zip(symbols, rs_values)}
+
+    def check_technical_conditions(self, df: pd.DataFrame) -> bool:
+        """기술적 조건 확인"""
+        if len(df) < 220:
+            return False
+
+        try:
+            closes = df['Close']
+            current_price = closes.iloc[0]
+            
+            ma50 = closes.rolling(window=50).mean().iloc[-1]
+            ma150 = closes.rolling(window=150).mean().iloc[-1]
+            ma200 = closes.rolling(window=200).mean().iloc[-1]
+            ma200_prev = closes.iloc[20:220].mean()
+            
+            conditions = {
+                'price_above_ma50': current_price > ma50,
+                'price_above_ma150': current_price > ma150,
+                'price_above_ma200': current_price > ma200,
+                'ma50_above_ma150': ma50 > ma150,
+                'ma150_above_ma200': ma150 > ma200,
+                'ma200_trend': ma200 > ma200_prev
+            }
+            
+            return all(conditions.values())
+        except Exception as e:
+            print(f"기술적 조건 확인 중 오류 발생: {e}")
+            return False
 
     def get_stock_data_with_return(self, ticker: str) -> Tuple[str, pd.DataFrame, float]:
         """병렬 처리를 위한 데이터 및 수익률 계산 함수"""
@@ -120,4 +201,36 @@ class StockAnalyzer:
         print(f"총 {len(selected_stocks)}개 종목 선정 완료")
         return selected_stocks
 
-    # 나머지 메서드들은 이전과 동일...
+    def update_airtable(self, selected_stocks: List[Dict]):
+        """Airtable 업데이트"""
+        print("Airtable 업데이트 시작...")
+        try:
+            existing_records = self.airtable.get_all()
+            for record in existing_records:
+                self.airtable.delete(record['id'])
+
+            for stock in selected_stocks:
+                self.airtable.insert({
+                    '종목명': stock['name'],
+                    '업데이트 날짜': self.today.strftime('%Y-%m-%d'),
+                    '현재가': stock['current_price'],
+                    '등락률': round(stock['change_percent'], 2),
+                    '거래대금': round(stock['volume'] / 1_000_000, 2),
+                    '52주 신고가': stock['year_high'],
+                    'RS순위': round(stock['rs_rating'], 2),
+                    '시가총액': round(stock['market_cap'] / 1_000_000_000, 2)
+                })
+            print("Airtable 업데이트 완료")
+        except Exception as e:
+            print(f"Airtable 업데이트 중 오류 발생: {e}")
+            raise
+
+def main():
+    print("마크 미너비니 스캐너 시작...")
+    analyzer = StockAnalyzer()
+    selected_stocks = analyzer.analyze_stocks()
+    analyzer.update_airtable(selected_stocks)
+    print("분석 완료!")
+
+if __name__ == "__main__":
+    main()
