@@ -25,4 +25,5 @@ jobs:
       - name: Run analysis
         env:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
-        run: python stock_analyzer.py
+        run: |
+          python minervini_scanner.py
