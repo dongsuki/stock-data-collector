@@ -108,32 +108,37 @@ class StockAnalyzer:
             print(f"기술적 조건 확인 중 오류 발생: {e}")
             return False
 
-    def get_stock_data_with_return(self, ticker: str) -> Tuple[str, pd.DataFrame, float]:
+def get_stock_data_with_return(self, ticker: str) -> Tuple[str, pd.DataFrame, float]:
         """병렬 처리를 위한 데이터 및 수익률 계산 함수"""
         retry_count = 0
         while retry_count < 3:
             try:
+                # yfinance 타임아웃 설정 증가
                 stock = yf.Ticker(ticker)
-                hist = stock.history(start=self.start_date, end=self.end_date)
+                hist = stock.history(start=self.start_date, end=self.end_date, timeout=30)
                 
-                if len(hist) >= 252:
+                if not hist.empty and len(hist) >= 252:
                     weighted_return = self.calculate_weighted_return(hist)
-                    time.sleep(uniform(0.5, 1))
-                    return ticker, hist, weighted_return
+                    time.sleep(uniform(1, 2))  # 대기 시간 증가
+                    if weighted_return is not None:
+                        print(f"{ticker} 데이터 수집 완료")
+                        return ticker, hist, weighted_return
+                else:
+                    print(f"{ticker} 충분한 데이터가 없음")
                 return ticker, pd.DataFrame(), None
                 
             except Exception as e:
                 retry_count += 1
-                if "Too Many Requests" in str(e):
-                    wait_time = 5 * retry_count
-                    print(f"{ticker} 처리 중 요청 제한 발생. {wait_time}초 후 재시도...")
+                if "Too Many Requests" in str(e) or "Read timed out" in str(e):
+                    wait_time = 10 * retry_count  # 대기 시간 증가
+                    print(f"{ticker} 연결 오류 발생. {wait_time}초 후 재시도...")
                     time.sleep(wait_time)
                 else:
                     print(f"{ticker} 처리 중 오류 발생: {e}")
                     return ticker, pd.DataFrame(), None
-        
+                    
+        print(f"{ticker} 최대 재시도 횟수 초과")
         return ticker, pd.DataFrame(), None
-
     def analyze_stocks(self):
         """주식 분석 실행 - 병렬 처리 적용"""
         tickers = self.get_krx_tickers()
