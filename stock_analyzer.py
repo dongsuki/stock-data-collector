@@ -15,25 +15,39 @@ class StockAnalyzer:
         # Airtable 설정
         self.base_id = 'appJFk54sIT9oSiZy'
         self.table_name = '마크미너비니'
-        self.api_key = os.environ['AIRTABLE_API_KEY']
+        self.api_key = os.environ['patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748']
         self.airtable = Airtable(self.base_id, self.table_name, self.api_key)
 
     def get_krx_tickers(self) -> List[str]:
         """코스피, 코스닥 티커 가져오기 (ETF 제외)"""
-        # KOSPI 종목 가져오기
-        kospi = fdr.StockListing('KOSPI')
-        # KOSDAQ 종목 가져오기
-        kosdaq = fdr.StockListing('KOSDAQ')
-        
-        # 종목코드 포맷팅
-        kospi_tickers = kospi['Symbol'].apply(lambda x: f"{x}.KS")
-        kosdaq_tickers = kosdaq['Symbol'].apply(lambda x: f"{x}.KQ")
-        
-        # ETF 제외
-        kospi_tickers = kospi_tickers[~kospi['Name'].str.contains('ETF', na=False)]
-        kosdaq_tickers = kosdaq_tickers[~kosdaq['Name'].str.contains('ETF', na=False)]
-        
-        return list(kospi_tickers) + list(kosdaq_tickers)
+        try:
+            # KOSPI 종목 가져오기
+            kospi = fdr.StockListing('KOSPI')
+            # KOSDAQ 종목 가져오기
+            kosdaq = fdr.StockListing('KOSDAQ')
+            
+            # 컬럼명 확인 및 출력
+            print("KOSPI columns:", kospi.columns)
+            print("KOSDAQ columns:", kosdaq.columns)
+            
+            # 종목코드 컬럼이 'Code'인 경우
+            code_column = 'Code' if 'Code' in kospi.columns else 'code'
+            name_column = 'Name' if 'Name' in kospi.columns else 'name'
+            
+            # 종목코드 포맷팅
+            kospi_tickers = kospi[code_column].astype(str).apply(lambda x: f"{x.zfill(6)}.KS")
+            kosdaq_tickers = kosdaq[code_column].astype(str).apply(lambda x: f"{x.zfill(6)}.KQ")
+            
+            # ETF 제외 (Name 컬럼에 'ETF'가 포함된 경우)
+            kospi_tickers = kospi_tickers[~kospi[name_column].str.contains('ETF', na=False)]
+            kosdaq_tickers = kosdaq_tickers[~kosdaq[name_column].str.contains('ETF', na=False)]
+            
+            return list(kospi_tickers) + list(kosdaq_tickers)
+        except Exception as e:
+            print(f"티커 가져오기 중 오류 발생: {e}")
+            print(f"KOSPI data sample:\n{kospi.head()}")
+            print(f"KOSDAQ data sample:\n{kosdaq.head()}")
+            raise
 
     def calculate_weighted_return(self, historical: pd.DataFrame) -> float:
         """가중 수익률 계산"""
