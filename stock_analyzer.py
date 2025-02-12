@@ -15,7 +15,7 @@ class StockAnalyzer:
         # Airtable 설정
         self.base_id = 'appJFk54sIT9oSiZy'
         self.table_name = '마크미너비니'
-        self.api_key = os.environ['patBy8FRWWiG6P99a.a0670e9dd25c84d028c9f708af81d5f1fb164c3adeb1cee067d100075db8b748']
+        self.api_key = os.environ['AIRTABLE_API_KEY']
         self.airtable = Airtable(self.base_id, self.table_name, self.api_key)
 
     def get_krx_tickers(self) -> List[str]:
