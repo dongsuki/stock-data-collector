@@ -127,85 +127,83 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
     if not quarterly_data:
         return growth_rates
         
-# 연간 데이터 조회
-annual_data = get_financials_fmp(ticker, 'annual')
-if not annual_data:
-    return growth_rates
-
-try:
-    # 분기별 성장률 계산
-    for i in range(min(3, len(quarterly_data))):
-        current_quarter = quarterly_data[i]
-        year_ago_quarter = find_matching_quarter_data(current_quarter, quarterly_data)
+    # 연간 데이터 조회
+    annual_data = get_financials_fmp(ticker, 'annual')
+    if not annual_data:
+        return growth_rates
+    try:
+        # 분기별 성장률 계산
+        for i in range(min(3, len(quarterly_data))):
+            current_quarter = quarterly_data[i]
+            year_ago_quarter = find_matching_quarter_data(current_quarter, quarterly_data)
+            
+            if year_ago_quarter:
+                quarter_key = f'q{i+1}'
+                growth_rates['dates']['quarters'][quarter_key] = current_quarter['date']
+                
+                # EPS 계산
+                current_eps = calculate_eps(
+                    current_quarter.get('netIncome', 0),
+                    current_quarter.get('weightedAverageShsOut', 0)
+                )
+                previous_eps = calculate_eps(
+                    year_ago_quarter.get('netIncome', 0),
+                    year_ago_quarter.get('weightedAverageShsOut', 0)
+                )
+                
+                # NPM 계산 (추가)
+                current_npm = (current_quarter.get('netIncome', 0) / current_quarter.get('revenue', 1)) * 100 if current_quarter.get('revenue', 0) != 0 else None
+                previous_npm = (year_ago_quarter.get('netIncome', 0) / year_ago_quarter.get('revenue', 1)) * 100 if year_ago_quarter.get('revenue', 0) != 0 else None
+                
+                # 성장률 계산
+                growth_rates['eps_growth'][quarter_key] = safe_growth_rate(current_eps, previous_eps)
+                growth_rates['operating_income_growth'][quarter_key] = safe_growth_rate(
+                    current_quarter.get('operatingIncome'),
+                    year_ago_quarter.get('operatingIncome')
+                )
+                growth_rates['revenue_growth'][quarter_key] = safe_growth_rate(
+                    current_quarter.get('revenue'),
+                    year_ago_quarter.get('revenue')
+                )
+                growth_rates['npm_growth'][quarter_key] = safe_growth_rate(current_npm, previous_npm)  # NPM 성장률 추가
         
-        if year_ago_quarter:
-            quarter_key = f'q{i+1}'
-            growth_rates['dates']['quarters'][quarter_key] = current_quarter['date']
+        # 연간 성장률 계산
+        for i in range(min(3, len(annual_data) - 1)):
+            current_year = annual_data[i]
+            previous_year = annual_data[i + 1]
+            
+            year_key = f'y{i+1}'
+            growth_rates['dates']['years'][year_key] = current_year['calendarYear']
             
             # EPS 계산
             current_eps = calculate_eps(
-                current_quarter.get('netIncome', 0),
-                current_quarter.get('weightedAverageShsOut', 0)
+                current_year.get('netIncome', 0),
+                current_year.get('weightedAverageShsOut', 0)
             )
             previous_eps = calculate_eps(
-                year_ago_quarter.get('netIncome', 0),
-                year_ago_quarter.get('weightedAverageShsOut', 0)
+                previous_year.get('netIncome', 0),
+                previous_year.get('weightedAverageShsOut', 0)
             )
             
             # NPM 계산 (추가)
-            current_npm = (current_quarter.get('netIncome', 0) / current_quarter.get('revenue', 1)) * 100 if current_quarter.get('revenue', 0) != 0 else None
-            previous_npm = (year_ago_quarter.get('netIncome', 0) / year_ago_quarter.get('revenue', 1)) * 100 if year_ago_quarter.get('revenue', 0) != 0 else None
+            current_npm = (current_year.get('netIncome', 0) / current_year.get('revenue', 1)) * 100 if current_year.get('revenue', 0) != 0 else None
+            previous_npm = (previous_year.get('netIncome', 0) / previous_year.get('revenue', 1)) * 100 if previous_year.get('revenue', 0) != 0 else None
             
             # 성장률 계산
-            growth_rates['eps_growth'][quarter_key] = safe_growth_rate(current_eps, previous_eps)
-            growth_rates['operating_income_growth'][quarter_key] = safe_growth_rate(
-                current_quarter.get('operatingIncome'),
-                year_ago_quarter.get('operatingIncome')
+            growth_rates['eps_growth'][year_key] = safe_growth_rate(current_eps, previous_eps)
+            growth_rates['operating_income_growth'][year_key] = safe_growth_rate(
+                current_year.get('operatingIncome'),
+                previous_year.get('operatingIncome')
             )
-            growth_rates['revenue_growth'][quarter_key] = safe_growth_rate(
-                current_quarter.get('revenue'),
-                year_ago_quarter.get('revenue')
+            growth_rates['revenue_growth'][year_key] = safe_growth_rate(
+                current_year.get('revenue'),
+                previous_year.get('revenue')
             )
-            growth_rates['npm_growth'][quarter_key] = safe_growth_rate(current_npm, previous_npm)  # NPM 성장률 추가
-    
-    # 연간 성장률 계산
-    for i in range(min(3, len(annual_data) - 1)):
-        current_year = annual_data[i]
-        previous_year = annual_data[i + 1]
-        
-        year_key = f'y{i+1}'
-        growth_rates['dates']['years'][year_key] = current_year['calendarYear']
-        
-        # EPS 계산
-        current_eps = calculate_eps(
-            current_year.get('netIncome', 0),
-            current_year.get('weightedAverageShsOut', 0)
-        )
-        previous_eps = calculate_eps(
-            previous_year.get('netIncome', 0),
-            previous_year.get('weightedAverageShsOut', 0)
-        )
-        
-        # NPM 계산 (추가)
-        current_npm = (current_year.get('netIncome', 0) / current_year.get('revenue', 1)) * 100 if current_year.get('revenue', 0) != 0 else None
-        previous_npm = (previous_year.get('netIncome', 0) / previous_year.get('revenue', 1)) * 100 if previous_year.get('revenue', 0) != 0 else None
-        
-        # 성장률 계산
-        growth_rates['eps_growth'][year_key] = safe_growth_rate(current_eps, previous_eps)
-        growth_rates['operating_income_growth'][year_key] = safe_growth_rate(
-            current_year.get('operatingIncome'),
-            previous_year.get('operatingIncome')
-        )
-        growth_rates['revenue_growth'][year_key] = safe_growth_rate(
-            current_year.get('revenue'),
-            previous_year.get('revenue')
-        )
-        growth_rates['npm_growth'][year_key] = safe_growth_rate(current_npm, previous_npm)  # NPM 성장률 추가
-            
-except Exception as e:
-    print(f"성장률 계산 중 에러 발생: {str(e)}")
-
-return growth_rates
+            growth_rates['npm_growth'][year_key] = safe_growth_rate(current_npm, previous_npm)  # NPM 성장률 추가
+                
+    except Exception as e:
+        print(f"성장률 계산 중 에러 발생: {str(e)}")
+    return growth_rates
 
 def get_stock_data(ticker: str) -> Dict:
     """Polygon API를 사용하여 주식 데이터 조회 (장전 또는 장마감 후 데이터 조회)
