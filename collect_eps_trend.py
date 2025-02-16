@@ -125,44 +125,43 @@ def update_airtable(data: Dict, ticker: str):
     """Airtable 데이터 업데이트"""
     try:
         airtable = Airtable(TARGET_BASE_ID, TARGET_TABLE_NAME, AIRTABLE_API_KEY)
-        current_date = datetime.now().strftime("%Y-%m-%d")
         
         # 데이터 정리
         record = {
             '티커': ticker,
-            '업데이트 시간': current_date,
+            '업데이트 시간': data['업데이트 시간'],
             
             # Current Qtr
-            '현재분기 현재추정': data['eps_trends'].get('Current Estimate', [''])[0],
-            '현재분기 7일전': data['eps_trends'].get('7 Days Ago', [''])[0],
-            '현재분기 30일전': data['eps_trends'].get('30 Days Ago', [''])[0],
-            '현재분기 60일전': data['eps_trends'].get('60 Days Ago', [''])[0],
-            '현재분기 90일전': data['eps_trends'].get('90 Days Ago', [''])[0],
+            '현재분기 현재추정': data['현재분기 현재추정'],
+            '현재분기 7일전': data['현재분기 7일전'],
+            '현재분기 30일전': data['현재분기 30일전'],
+            '현재분기 60일전': data['현재분기 60일전'],
+            '현재분기 90일전': data['현재분기 90일전'],
             
             # Next Qtr
-            '다음분기 현재추정': data['eps_trends'].get('Current Estimate', ['', ''])[1],
-            '다음분기 7일전': data['eps_trends'].get('7 Days Ago', ['', ''])[1],
-            '다음분기 30일전': data['eps_trends'].get('30 Days Ago', ['', ''])[1],
-            '다음분기 60일전': data['eps_trends'].get('60 Days Ago', ['', ''])[1],
-            '다음분기 90일전': data['eps_trends'].get('90 Days Ago', ['', ''])[1],
+            '다음분기 현재추정': data['다음분기 현재추정'],
+            '다음분기 7일전': data['다음분기 7일전'],
+            '다음분기 30일전': data['다음분기 30일전'],
+            '다음분기 60일전': data['다음분기 60일전'],
+            '다음분기 90일전': data['다음분기 90일전'],
             
             # Current Year
-            '현재연도 현재추정': data['eps_trends'].get('Current Estimate', ['', '', ''])[2],
-            '현재연도 7일전': data['eps_trends'].get('7 Days Ago', ['', '', ''])[2],
-            '현재연도 30일전': data['eps_trends'].get('30 Days Ago', ['', '', ''])[2],
-            '현재연도 60일전': data['eps_trends'].get('60 Days Ago', ['', '', ''])[2],
-            '현재연도 90일전': data['eps_trends'].get('90 Days Ago', ['', '', ''])[2],
+            '현재연도 현재추정': data['현재연도 현재추정'],
+            '현재연도 7일전': data['현재연도 7일전'],
+            '현재연도 30일전': data['현재연도 30일전'],
+            '현재연도 60일전': data['현재연도 60일전'],
+            '현재연도 90일전': data['현재연도 90일전'],
             
             # Next Year
-            '내년 현재추정': data['eps_trends'].get('Current Estimate', ['', '', '', ''])[3],
-            '내년 7일전': data['eps_trends'].get('7 Days Ago', ['', '', '', ''])[3],
-            '내년 30일전': data['eps_trends'].get('30 Days Ago', ['', '', '', ''])[3],
-            '내년 60일전': data['eps_trends'].get('60 Days Ago', ['', '', '', ''])[3],
-            '내년 90일전': data['eps_trends'].get('90 Days Ago', ['', '', '', ''])[3]
+            '내년 현재추정': data['내년 현재추정'],
+            '내년 7일전': data['내년 7일전'],
+            '내년 30일전': data['내년 30일전'],
+            '내년 60일전': data['내년 60일전'],
+            '내년 90일전': data['내년 90일전']
         }
         
         # 해당 티커의 레코드 찾기 (마크미너비니 뷰에서)
-        existing_records = airtable.search('티커', ticker, view=SOURCE_VIEW_NAME)
+        existing_records = airtable.search('티커', ticker, view=마크미너비니)
         
         if existing_records:
             record_id = existing_records[0]['id']
