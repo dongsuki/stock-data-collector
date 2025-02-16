@@ -111,7 +111,6 @@ def get_financials_fmp(ticker: str, period: str = 'quarter') -> List:
         return []
 
 def calculate_growth_rates_fmp(ticker: str) -> Dict:
-    """재무 성장률 계산 (전년 동기 대비)"""
     growth_rates = {
         'dates': {
             'quarters': {'q1': None, 'q2': None, 'q3': None},
@@ -119,8 +118,8 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
         },
         'eps_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
         'operating_income_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
-        'revenue_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None}
-        'npm_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None}  # NPM 추가        
+        'revenue_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
+        'npm_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None}  # 콤마 추가
     }
     
     # 분기 데이터 조회
