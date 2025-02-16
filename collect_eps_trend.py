@@ -122,24 +122,58 @@ def get_eps_trend_data(symbol: str) -> Dict:
        return {}
 
 def update_airtable(data: Dict, ticker: str):
-   """Airtable 데이터 업데이트"""
-   try:
-       airtable = Airtable(TARGET_BASE_ID, TARGET_TABLE_NAME, AIRTABLE_API_KEY)
-       
-       # 해당 티커의 레코드 찾기 (마크미너비니 뷰에서)
-       existing_records = airtable.search('티커', ticker, view=SOURCE_VIEW_NAME)
-       
-       if existing_records:
-           record_id = existing_records[0]['id']
-           airtable.update(record_id, data)
-           print(f"{ticker} 데이터 업데이트 완료")
-       else:
-           data['티커'] = ticker
-           airtable.insert(data)
-           print(f"{ticker} 신규 데이터 입력 완료")
-           
-   except Exception as e:
-       print(f"Airtable 업데이트 중 에러 발생 ({ticker}): {e}")
+    """Airtable 데이터 업데이트"""
+    try:
+        airtable = Airtable(TARGET_BASE_ID, TARGET_TABLE_NAME, AIRTABLE_API_KEY)
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
+        # 데이터 정리
+        record = {
+            '티커': ticker,
+            '업데이트 시간': current_date,
+            
+            # Current Qtr
+            '현재분기 현재추정': data['eps_trends'].get('Current Estimate', [''])[0],
+            '현재분기 7일전': data['eps_trends'].get('7 Days Ago', [''])[0],
+            '현재분기 30일전': data['eps_trends'].get('30 Days Ago', [''])[0],
+            '현재분기 60일전': data['eps_trends'].get('60 Days Ago', [''])[0],
+            '현재분기 90일전': data['eps_trends'].get('90 Days Ago', [''])[0],
+            
+            # Next Qtr
+            '다음분기 현재추정': data['eps_trends'].get('Current Estimate', ['', ''])[1],
+            '다음분기 7일전': data['eps_trends'].get('7 Days Ago', ['', ''])[1],
+            '다음분기 30일전': data['eps_trends'].get('30 Days Ago', ['', ''])[1],
+            '다음분기 60일전': data['eps_trends'].get('60 Days Ago', ['', ''])[1],
+            '다음분기 90일전': data['eps_trends'].get('90 Days Ago', ['', ''])[1],
+            
+            # Current Year
+            '현재연도 현재추정': data['eps_trends'].get('Current Estimate', ['', '', ''])[2],
+            '현재연도 7일전': data['eps_trends'].get('7 Days Ago', ['', '', ''])[2],
+            '현재연도 30일전': data['eps_trends'].get('30 Days Ago', ['', '', ''])[2],
+            '현재연도 60일전': data['eps_trends'].get('60 Days Ago', ['', '', ''])[2],
+            '현재연도 90일전': data['eps_trends'].get('90 Days Ago', ['', '', ''])[2],
+            
+            # Next Year
+            '내년 현재추정': data['eps_trends'].get('Current Estimate', ['', '', '', ''])[3],
+            '내년 7일전': data['eps_trends'].get('7 Days Ago', ['', '', '', ''])[3],
+            '내년 30일전': data['eps_trends'].get('30 Days Ago', ['', '', '', ''])[3],
+            '내년 60일전': data['eps_trends'].get('60 Days Ago', ['', '', '', ''])[3],
+            '내년 90일전': data['eps_trends'].get('90 Days Ago', ['', '', '', ''])[3]
+        }
+        
+        # 해당 티커의 레코드 찾기 (마크미너비니 뷰에서)
+        existing_records = airtable.search('티커', ticker, view=SOURCE_VIEW_NAME)
+        
+        if existing_records:
+            record_id = existing_records[0]['id']
+            airtable.update(record_id, record)
+            print(f"{ticker} 데이터 업데이트 완료")
+        else:
+            airtable.insert(record)
+            print(f"{ticker} 신규 데이터 입력 완료")
+            
+    except Exception as e:
+        print(f"Airtable 업데이트 중 에러 발생 ({ticker}): {e}")
 
 def main():
    try:
