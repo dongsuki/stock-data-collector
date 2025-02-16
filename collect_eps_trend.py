@@ -7,26 +7,33 @@ def get_eps_trend_data(symbol):
         ticker = yf.Ticker(symbol)
         print(f"Fetching data for {symbol}...")
         
-        # 데이터 가져오기 시도
         try:
-            # EPS 트렌드 데이터 수집 시도
-            earnings_trend = ticker.earnings_trend
-            if earnings_trend is not None:
-                print("Earnings trend data found:")
-                print(earnings_trend)
+            # 분석가 추정치 데이터 가져오기
+            print("\nAnalyst Recommendations:")
+            recommendations = ticker.recommendations
+            if recommendations is not None:
+                print(recommendations)
             else:
-                print("No earnings trend data available")
-            
-            # 애널리스트 예측 데이터 수집 시도
-            analyst_data = ticker.analyst_price_target
-            if analyst_data is not None:
-                print("Analyst price target data found:")
-                print(analyst_data)
+                print("No recommendations data available")
+
+            # 실적 데이터 가져오기
+            print("\nEarnings Data:")
+            earnings = ticker.earnings
+            if earnings is not None:
+                print(earnings)
             else:
-                print("No analyst price target data available")
+                print("No earnings data available")
+
+            # financials 데이터 확인
+            print("\nFinancials Data:")
+            financials = ticker.financials
+            if financials is not None:
+                print(financials)
+            else:
+                print("No financials data available")
                 
         except Exception as e:
-            print(f"Error fetching trend data: {e}")
+            print(f"Error fetching data: {e}")
         
         return True
         
@@ -37,7 +44,7 @@ def get_eps_trend_data(symbol):
 def main():
     symbol = 'INOD'
     success = get_eps_trend_data(symbol)
-    print(f"Data collection for {symbol}: {'successful' if success else 'failed'}")
+    print(f"\nData collection for {symbol}: {'successful' if success else 'failed'}")
 
 if __name__ == "__main__":
     main()
