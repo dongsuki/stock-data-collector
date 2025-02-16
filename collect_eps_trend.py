@@ -161,7 +161,7 @@ def update_airtable(data: Dict, ticker: str):
         }
         
         # 해당 티커의 레코드 찾기 (마크미너비니 뷰에서)
-        existing_records = airtable.search('티커', ticker, view=마크미너비니)
+        existing_records = airtable.search('티커', ticker, view='마크미너비니')
         
         if existing_records:
             record_id = existing_records[0]['id']
