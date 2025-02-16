@@ -1,44 +1,47 @@
-import yfinance as yf
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 
 def get_eps_trend_data(symbol):
     try:
-        # 티커 객체 생성
-        ticker = yf.Ticker(symbol)
-        print(f"Fetching data for {symbol}...")
+        # Yahoo Finance Analysis 페이지 URL
+        url = f'https://finance.yahoo.com/quote/{symbol}/analysis'
         
-        try:
-            # 분석가 추정치 데이터 가져오기
-            print("\nAnalyst Recommendations:")
-            recommendations = ticker.recommendations
-            if recommendations is not None:
-                print(recommendations)
-            else:
-                print("No recommendations data available")
-
-            # 실적 데이터 가져오기
-            print("\nEarnings Data:")
-            earnings = ticker.earnings
-            if earnings is not None:
-                print(earnings)
-            else:
-                print("No earnings data available")
-
-            # financials 데이터 확인
-            print("\nFinancials Data:")
-            financials = ticker.financials
-            if financials is not None:
-                print(financials)
-            else:
-                print("No financials data available")
-                
-        except Exception as e:
-            print(f"Error fetching data: {e}")
+        # User-Agent 헤더 추가
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
         
-        return True
+        print(f"Fetching EPS Trend data for {symbol}...")
+        response = requests.get(url, headers=headers)
         
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # EPS Trend 테이블 찾기
+            tables = soup.find_all('table')
+            for table in tables:
+                # 테이블 헤더에서 "EPS Trend" 텍스트 찾기
+                if table.find(text='EPS Trend'):
+                    print("\nEPS Trend Data found:")
+                    # 데이터 행 추출
+                    rows = table.find_all('tr')
+                    for row in rows:
+                        # 각 셀의 데이터 추출
+                        cells = row.find_all('td')
+                        if cells:
+                            print([cell.text.strip() for cell in cells])
+                    return True
+            
+            print("EPS Trend table not found")
+            return False
+            
+        else:
+            print(f"Failed to fetch data. Status code: {response.status_code}")
+            return False
+            
     except Exception as e:
-        print(f"Error processing {symbol}: {e}")
+        print(f"Error occurred: {e}")
         return False
 
 def main():
