@@ -1,4 +1,4 @@
-Copyname: Collect EPS Trend Data
+name: Collect EPS Trend Data
 
 on:
   workflow_dispatch:      # 수동 실행 가능
@@ -21,12 +21,12 @@ jobs:
         pip install yfinance pandas
 
     - name: Run EPS trend collection
-      run: python scripts/collect_eps_trend.py
+      run: python collect_eps_trend.py
       
     - name: Commit and push if changed
       run: |
         git config --local user.email "github-actions@github.com"
         git config --local user.name "github-actions"
-        git add data/eps_trend/
+        git add data/
         git commit -m "Update EPS trend data" -a || exit 0
         git push origin
