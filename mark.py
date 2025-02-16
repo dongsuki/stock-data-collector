@@ -209,22 +209,33 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
     return growth_rates
 
 def get_stock_data(ticker: str) -> Dict:
-    """Polygon API를 사용하여 주식 데이터 조회 (장전 또는 장마감 후 데이터 조회)
-    - 장전: 어제의 종가 데이터 (/v2/aggs/ticker/{ticker}/prev)
-    - 장마감 후: 당일의 open-close 데이터 (/v1/open-close/{ticker}/{today})
-    """
     now = datetime.now()
     # ET(동부시간) 기준 9:30 ~ 16:00 (서버 시간이 ET가 아니라면 타임존 변환 필요)
     market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
     market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
     
+    # 여기에 시장 상태 확인 코드 추가
+    status_url = "https://api.polygon.io/v1/marketstatus/now"
+    try:
+        status_response = requests.get(status_url, params={'apiKey': POLYGON_API_KEY})
+        if status_response.status_code == 200:
+            market_status = status_response.json().get('market')
+            if market_status != 'open':
+                # 휴장일이면 무조건 이전 거래일 데이터 사용
+                url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
+                params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
+                endpoint_used = 'prev'
+                return  # 아래 시간 체크 로직 건너뛰기
+    except Exception as e:
+        print(f"시장 상태 확인 중 에러: {str(e)}")
+        # 에러 발생시에도 계속 진행 (기존 시간 체크 로직 사용)
+    
+    # 기존의 시간 체크 로직은 그대로 유지
     if now < market_open:
-        # 장전: 이전 거래일 데이터 사용
         url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
         params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
         endpoint_used = 'prev'
     elif now >= market_close:
-        # 장마감 후: 당일 데이터 사용
         today = now.strftime("%Y-%m-%d")
         url = f"https://api.polygon.io/v1/open-close/{ticker}/{today}"
         params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
