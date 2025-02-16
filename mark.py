@@ -210,11 +210,10 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
 
 def get_stock_data(ticker: str) -> Dict:
     now = datetime.now()
-    # ET(동부시간) 기준 9:30 ~ 16:00 (서버 시간이 ET가 아니라면 타임존 변환 필요)
     market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
     market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
     
-    # 여기에 시장 상태 확인 코드 추가
+    # 시장 상태 확인
     status_url = "https://api.polygon.io/v1/marketstatus/now"
     try:
         status_response = requests.get(status_url, params={'apiKey': POLYGON_API_KEY})
@@ -225,24 +224,24 @@ def get_stock_data(ticker: str) -> Dict:
                 url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
                 params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
                 endpoint_used = 'prev'
-                return  # 아래 시간 체크 로직 건너뛰기
+                # return 문을 제거하고 아래 로직으로 계속 진행되도록 함
     except Exception as e:
         print(f"시장 상태 확인 중 에러: {str(e)}")
-        # 에러 발생시에도 계속 진행 (기존 시간 체크 로직 사용)
     
-    # 기존의 시간 체크 로직은 그대로 유지
-    if now < market_open:
-        url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
-        params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
-        endpoint_used = 'prev'
-    elif now >= market_close:
-        today = now.strftime("%Y-%m-%d")
-        url = f"https://api.polygon.io/v1/open-close/{ticker}/{today}"
-        params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
-        endpoint_used = 'open-close'
-    else:
-        print(f"{ticker} 현재는 장중입니다. 장전 또는 장마감 후에 실행하세요.")
-        return {}
+    # 휴장일이 아닐 경우 시간 체크
+    if not 'url' in locals():  # url이 아직 설정되지 않은 경우에만
+        if now < market_open:
+            url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
+            params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
+            endpoint_used = 'prev'
+        elif now >= market_close:
+            today = now.strftime("%Y-%m-%d")
+            url = f"https://api.polygon.io/v1/open-close/{ticker}/{today}"
+            params = {'apiKey': POLYGON_API_KEY, 'adjusted': 'true'}
+            endpoint_used = 'open-close'
+        else:
+            print(f"{ticker} 현재는 장중입니다. 장전 또는 장마감 후에 실행하세요.")
+            return {}
     
     try:
         response = requests.get(url, params=params)
