@@ -117,6 +117,7 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
             'years': {'y1': None, 'y2': None, 'y3': None}
         },
         'eps_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
+        'eps_values': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},  # EPS 값 추가
         'operating_income_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
         'revenue_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None},
         'npm_growth': {'q1': None, 'q2': None, 'q3': None, 'y1': None, 'y2': None, 'y3': None}  # 콤마 추가
@@ -146,6 +147,7 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
                     current_quarter.get('netIncome', 0),
                     current_quarter.get('weightedAverageShsOut', 0)
                 )
+                growth_rates['eps_values'][quarter_key] = current_eps  # EPS 값 저장
                 previous_eps = calculate_eps(
                     year_ago_quarter.get('netIncome', 0),
                     year_ago_quarter.get('weightedAverageShsOut', 0)
@@ -180,6 +182,7 @@ def calculate_growth_rates_fmp(ticker: str) -> Dict:
                 current_year.get('netIncome', 0),
                 current_year.get('weightedAverageShsOut', 0)
             )
+            growth_rates['eps_values'][year_key] = current_eps  # EPS 값 저장
             previous_eps = calculate_eps(
                 previous_year.get('netIncome', 0),
                 previous_year.get('weightedAverageShsOut', 0)
@@ -306,6 +309,14 @@ def update_airtable(stock_data: List, category: str):
                 '시가총액': float(stock.get('market_cap', 0)),
                 '업데이트 시간': current_date,
                 '분류': category,
+
+                # EPS 값 추가
+                'EPS_최신분기': growth_rates['eps_values']['q1'],
+                'EPS_전분기': growth_rates['eps_values']['q2'],
+                'EPS_전전분기': growth_rates['eps_values']['q3'],
+                'EPS_1년': growth_rates['eps_values']['y1'],
+                'EPS_2년': growth_rates['eps_values']['y2'],
+                'EPS_3년': growth_rates['eps_values']['y3'],
                 
                 # EPS 성장률과 날짜
                 'EPS성장률_최신분기': growth_rates['eps_growth']['q1'],
