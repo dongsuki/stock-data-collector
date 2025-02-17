@@ -28,7 +28,12 @@ jobs:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-        run: python ./mark.py
+        run: |
+          python ./mark.py
+          sleep 30  # 30초 대기
 
       - name: Run EPS trend collection
+        env:
+          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
         run: python collect_eps_trend.py
