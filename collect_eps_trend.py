@@ -67,8 +67,6 @@ def get_eps_trend_data(symbol: str) -> Dict:
                     '내년 현재추정': None, '내년 7일전': None,
                     '내년 30일전': None, '내년 60일전': None,
                     '내년 90일전': None,
-                    # 업데이트 시간 추가
-                    '업데이트 시간': datetime.now().strftime("%Y-%m-%d")
                 }
                 
                 def convert_to_float(value):
@@ -138,7 +136,6 @@ def update_airtable(data: Dict, ticker: str):
         # 데이터 정리
         record = {
             '티커': ticker,
-            '업데이트 시간': data['업데이트 시간'],
             
             # Current Qtr
             '현재분기 현재추정': data['현재분기 현재추정'],
